@@ -73,6 +73,8 @@ h1.title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 28px; co
 label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: #8a7fa0; font-weight: 600; flex: 1; }
 input { border: 1px solid #E4DCEF; border-radius: 10px; padding: 10px 12px; font-size: 14px; font-family: 'Manrope', sans-serif; color: #2E2440; outline: none; background: #FDFCFA; width: 100%; }
 .error-text { color: #c05656; font-size: 12.5px; font-weight: 600; }
+.price-preview { background: #F4F0FA; border: 1px solid #E4DCEF; border-radius: 10px; padding: 10px 14px; font-size: 13.5px; color: #3B2B54; margin-bottom: 6px; }
+.price-badge { color: #3B2B54; font-weight: 700; font-size: 11.5px; background: #F4F0FA; border: 1px solid #E4DCEF; border-radius: 999px; padding: 4px 10px; font-family: 'Manrope', sans-serif; }
 .submit-btn { background: #3B2B54; color: #fff; border: none; border-radius: 10px; padding: 11px 0; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 2px; font-family: inherit; }
 .inline-form { display: flex; gap: 8px; margin-top: 12px; }
 .add-btn { background: #3B2B54; color: #fff; border: none; border-radius: 10px; padding: 0 14px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
@@ -122,6 +124,55 @@ function esc(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// ---------- tarifs & calcul automatique du prix (pension) ----------
+const RATE_NUIT = 25;       // prix d'une nuit de pension
+const REMISE_2_CHIENS = 0.10; // -10% à partir de 2 chiens (même réservation)
+const REMISE_3_CHIENS = 0.15; // -15% à partir de 3 chiens (même réservation)
+const TARIF_ARRIVEE_TARDIVE = 10; // 1ère nuit à 10€ si arrivée entre 13h30 et 19h
+const TARIF_DEMI_JOURNEE = 10;    // départ entre 9h et 13h
+
+function parseLocalDate(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// Calcule le prix total d'un séjour selon la logique de tarification.
+// start/end : "AAAA-MM-JJ" ; arrivalTime/departureTime : "HH:MM" (optionnels) ; dogsCount : 1/2/3
+function computeDogPrice(start, end, arrivalTime, departureTime, dogsCount) {
+  const d1 = parseLocalDate(start);
+  const d2 = parseLocalDate(end);
+  if (!d1 || !d2) return 0;
+  const nights = Math.max(0, Math.round((d2 - d1) / 86400000));
+
+  let arriveeTardive = false;
+  if (arrivalTime) {
+    const [ah, am] = arrivalTime.split(":").map(Number);
+    const mins = ah * 60 + (am || 0);
+    arriveeTardive = mins >= (13 * 60 + 30) && mins < (19 * 60);
+  }
+
+  let extraJournee = false, extraDemi = false;
+  if (departureTime) {
+    const dh = Number(departureTime.split(":")[0]);
+    if (dh >= 14) extraJournee = true;
+    else if (dh > 8 && dh <= 13) extraDemi = true;
+  }
+
+  const nb = parseInt(dogsCount) || 1;
+  const discRate = nb >= 3 ? REMISE_3_CHIENS : nb === 2 ? REMISE_2_CHIENS : 0;
+  const disc = (v) => Math.round(v * (1 - discRate));
+
+  let total = 0;
+  if (nights > 0) {
+    const prix1 = arriveeTardive ? TARIF_ARRIVEE_TARDIVE : RATE_NUIT;
+    total += disc(prix1 + Math.max(0, nights - 1) * RATE_NUIT);
+  }
+  if (extraJournee) total += disc(RATE_NUIT);
+  if (extraDemi) total += disc(TARIF_DEMI_JOURNEE);
+  return total;
+}
+
 const STORAGE_KEY = "ma-journee-data-v1";
 
 // ---------- state ----------
@@ -136,6 +187,9 @@ let state = {
   newPaid: false,
   newDeposit: false,
   newDepositAmount: "",
+  newArrivalTime: "",
+  newDepartureTime: "",
+  newDogsCount: "1",
   formError: "",
   showAddVisit: false,
   visitClient: "",
@@ -147,6 +201,9 @@ let state = {
   editPaid: false,
   editDeposit: false,
   editDepositAmount: "",
+  editArrivalTime: "",
+  editDepartureTime: "",
+  editDogsCount: "1",
   editError: "",
   cardsOpen: {
     appel: false,
@@ -204,6 +261,9 @@ function resetAddForm() {
   state.newPaid = false;
   state.newDeposit = false;
   state.newDepositAmount = "";
+  state.newArrivalTime = "";
+  state.newDepartureTime = "";
+  state.newDogsCount = "1";
   state.formError = "";
 }
 window.openAddDog = function () {
@@ -237,6 +297,10 @@ window.submitAddDog = function (e) {
     paid: state.newPaid,
     deposit: state.newDeposit,
     depositAmount: state.newDeposit ? state.newDepositAmount.trim() : "",
+    arrivalTime: state.newArrivalTime,
+    departureTime: state.newDepartureTime,
+    dogsCount: state.newDogsCount,
+    price: computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount),
   });
   state.showAddDog = false;
   resetAddForm();
@@ -257,6 +321,9 @@ window.openEditDog = function (id) {
   state.editPaid = d.paid;
   state.editDeposit = d.deposit;
   state.editDepositAmount = d.depositAmount || "";
+  state.editArrivalTime = d.arrivalTime || "";
+  state.editDepartureTime = d.departureTime || "";
+  state.editDogsCount = d.dogsCount || "1";
   state.editError = "";
   state.showAddDog = false;
   rerender();
@@ -284,6 +351,10 @@ window.submitEditDog = function (e) {
           paid: state.editPaid,
           deposit: state.editDeposit,
           depositAmount: state.editDeposit ? state.editDepositAmount.trim() : "",
+          arrivalTime: state.editArrivalTime,
+          departureTime: state.editDepartureTime,
+          dogsCount: state.editDogsCount,
+          price: computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount),
         }
       : d
   );
@@ -374,6 +445,7 @@ function render() {
       ? `✓ Acompte${d.depositAmount ? " " + esc(d.depositAmount) + "€" : ""}`
       : "Sans acompte";
     return `<div class="${indent ? "payment-row-indent" : "payment-row"}">
+      ${typeof d.price === "number" ? `<span class="price-badge">💶 ${d.price}€</span>` : ""}
       <span class="pay-badge ${d.paid ? "pay-badge-on" : "pay-badge-off"}" style="cursor:default;">${d.paid ? "✓ Payé" : "Non payé"}</span>
       <span class="pay-badge ${d.deposit ? "deposit-badge-on" : "pay-badge-off"}" style="cursor:default;">${depositLabel}</span>
     </div>`;
@@ -406,6 +478,22 @@ function render() {
           </label>
         </div>
         <div class="date-row">
+          <label class="field">Heure d'arrivée
+            <input id="newArrivalTime" type="time" value="${esc(state.newArrivalTime)}" onchange="updateField('newArrivalTime', this.value)" />
+          </label>
+          <label class="field">Heure de départ
+            <input id="newDepartureTime" type="time" value="${esc(state.newDepartureTime)}" onchange="updateField('newDepartureTime', this.value)" />
+          </label>
+        </div>
+        <label class="field">Nombre de chiens (même réservation)
+          <select id="newDogsCount" onchange="updateField('newDogsCount', this.value)">
+            <option value="1" ${state.newDogsCount === "1" ? "selected" : ""}>1 chien</option>
+            <option value="2" ${state.newDogsCount === "2" ? "selected" : ""}>2 chiens (−10%)</option>
+            <option value="3" ${state.newDogsCount === "3" ? "selected" : ""}>3 chiens ou + (−15%)</option>
+          </select>
+        </label>
+        <div class="price-preview">💶 Prix total estimé : <strong>${computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount)}€</strong></div>
+        <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.newPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('newPaid', ${!state.newPaid})">${state.newPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.newDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('newDeposit', ${!state.newDeposit})">${state.newDeposit ? "✓ Acompte" : "Sans acompte"}</button>
         </div>
@@ -437,6 +525,22 @@ function render() {
             <input id="editEnd" type="date" value="${esc(state.editEnd)}" min="${esc(state.editStart)}" onchange="updateField('editEnd', this.value)" />
           </label>
         </div>
+        <div class="date-row">
+          <label class="field">Heure d'arrivée
+            <input id="editArrivalTime" type="time" value="${esc(state.editArrivalTime)}" onchange="updateField('editArrivalTime', this.value)" />
+          </label>
+          <label class="field">Heure de départ
+            <input id="editDepartureTime" type="time" value="${esc(state.editDepartureTime)}" onchange="updateField('editDepartureTime', this.value)" />
+          </label>
+        </div>
+        <label class="field">Nombre de chiens (même réservation)
+          <select id="editDogsCount" onchange="updateField('editDogsCount', this.value)">
+            <option value="1" ${state.editDogsCount === "1" ? "selected" : ""}>1 chien</option>
+            <option value="2" ${state.editDogsCount === "2" ? "selected" : ""}>2 chiens (−10%)</option>
+            <option value="3" ${state.editDogsCount === "3" ? "selected" : ""}>3 chiens ou + (−15%)</option>
+          </select>
+        </label>
+        <div class="price-preview">💶 Prix total estimé : <strong>${computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount)}€</strong></div>
         <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.editPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('editPaid', ${!state.editPaid})">${state.editPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.editDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('editDeposit', ${!state.editDeposit})">${state.editDeposit ? "✓ Acompte" : "Sans acompte"}</button>
