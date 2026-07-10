@@ -264,9 +264,15 @@ function rerender(focusId) {
   const scrollY = preserveScroll ? window.scrollY : null;
   persist();
   render();
+  // Sur mobile, redonner le focus à un champ date/heure via JS rouvre le
+  // sélecteur natif (Android en particulier) : ça provoque le flash
+  // "le champ disparaît puis revient". Ces champs n'ont de toute façon pas
+  // besoin de garder le focus une fois une date choisie, donc on saute la
+  // restauration du focus pour eux.
+  const noRefocusTypes = ["date", "time", "month", "week"];
   if (id) {
     const el = document.getElementById(id);
-    if (el) {
+    if (el && !noRefocusTypes.includes(el.type)) {
       if (preserveScroll) {
         // preventScroll: true évite que focus() ne fasse défiler la page
         // vers l'élément, même s'il est déjà visible.
@@ -311,6 +317,17 @@ window.closeAddDog = function () {
 window.updateField = function (field, value) {
   state[field] = value;
   rerender();
+};
+// Pour les champs date/heure : sur mobile, le sélecteur natif est encore en
+// train de se refermer quand "change" se déclenche. Reconstruire tout le DOM
+// à ce moment-là entre en conflit avec son animation de fermeture (double-tap
+// nécessaire, flash visuel). On laisse un instant au picker pour se fermer
+// avant de re-render.
+window.updateFieldDeferred = function (field, value) {
+  setTimeout(() => {
+    state[field] = value;
+    rerender();
+  }, 300);
 };
 window.submitAddDog = function (e) {
   e.preventDefault();
@@ -506,18 +523,18 @@ function render() {
         </label>
         <div class="date-row">
           <label class="field">Arrivée
-            <input id="newStart" type="date" value="${esc(state.newStart)}" onchange="updateField('newStart', this.value)" />
+            <input id="newStart" type="date" value="${esc(state.newStart)}" onchange="updateFieldDeferred('newStart', this.value)" />
           </label>
           <label class="field">Départ
-            <input id="newEnd" type="date" value="${esc(state.newEnd)}" min="${esc(state.newStart)}" onchange="updateField('newEnd', this.value)" />
+            <input id="newEnd" type="date" value="${esc(state.newEnd)}" min="${esc(state.newStart)}" onchange="updateFieldDeferred('newEnd', this.value)" />
           </label>
         </div>
         <div class="date-row">
           <label class="field">Heure d'arrivée
-            <input id="newArrivalTime" type="time" value="${esc(state.newArrivalTime)}" onchange="updateField('newArrivalTime', this.value)" />
+            <input id="newArrivalTime" type="time" value="${esc(state.newArrivalTime)}" onchange="updateFieldDeferred('newArrivalTime', this.value)" />
           </label>
           <label class="field">Heure de départ
-            <input id="newDepartureTime" type="time" value="${esc(state.newDepartureTime)}" onchange="updateField('newDepartureTime', this.value)" />
+            <input id="newDepartureTime" type="time" value="${esc(state.newDepartureTime)}" onchange="updateFieldDeferred('newDepartureTime', this.value)" />
           </label>
         </div>
         <label class="field">Nombre de chiens (même réservation)
@@ -558,18 +575,18 @@ function render() {
         </label>
         <div class="date-row">
           <label class="field">Arrivée
-            <input id="editStart" type="date" value="${esc(state.editStart)}" onchange="updateField('editStart', this.value)" />
+            <input id="editStart" type="date" value="${esc(state.editStart)}" onchange="updateFieldDeferred('editStart', this.value)" />
           </label>
           <label class="field">Départ
-            <input id="editEnd" type="date" value="${esc(state.editEnd)}" min="${esc(state.editStart)}" onchange="updateField('editEnd', this.value)" />
+            <input id="editEnd" type="date" value="${esc(state.editEnd)}" min="${esc(state.editStart)}" onchange="updateFieldDeferred('editEnd', this.value)" />
           </label>
         </div>
         <div class="date-row">
           <label class="field">Heure d'arrivée
-            <input id="editArrivalTime" type="time" value="${esc(state.editArrivalTime)}" onchange="updateField('editArrivalTime', this.value)" />
+            <input id="editArrivalTime" type="time" value="${esc(state.editArrivalTime)}" onchange="updateFieldDeferred('editArrivalTime', this.value)" />
           </label>
           <label class="field">Heure de départ
-            <input id="editDepartureTime" type="time" value="${esc(state.editDepartureTime)}" onchange="updateField('editDepartureTime', this.value)" />
+            <input id="editDepartureTime" type="time" value="${esc(state.editDepartureTime)}" onchange="updateFieldDeferred('editDepartureTime', this.value)" />
           </label>
         </div>
         <label class="field">Nombre de chiens (même réservation)
@@ -642,7 +659,7 @@ function render() {
 
 
   const otherDeparturesPicker = `<div class="other-departures-picker" onclick="stop(event)">
-      <input type="date" value="${esc(state.otherDeparturesDate)}" onchange="updateField('otherDeparturesDate', this.value)" />
+      <input type="date" value="${esc(state.otherDeparturesDate)}" onchange="updateFieldDeferred('otherDeparturesDate', this.value)" />
       ${state.otherDeparturesDate ? `<button type="button" class="clear-date-btn" title="Voir tous les départs à venir" onclick="updateField('otherDeparturesDate', '')">${ICONS.x(15)}</button>` : ""}
     </div>`;
 
@@ -684,7 +701,7 @@ function render() {
   const visitForm = state.showAddVisit
     ? `<form class="inline-form" onsubmit="submitAddVisit(event)">
         <input id="visitClient" style="flex:1" placeholder="Client / adresse..." value="${esc(state.visitClient)}" oninput="updateField('visitClient', this.value)" />
-        <input id="visitDate" type="date" value="${esc(state.visitDate)}" onchange="updateField('visitDate', this.value)" />
+        <input id="visitDate" type="date" value="${esc(state.visitDate)}" onchange="updateFieldDeferred('visitDate', this.value)" />
         <button type="submit" class="add-btn">Ajouter</button>
       </form>`
     : `<button class="add-link" onclick="openAddVisit()">${ICONS.plus(14)}Ajouter une visite</button>`;
