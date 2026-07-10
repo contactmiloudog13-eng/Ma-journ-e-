@@ -399,10 +399,10 @@ function render() {
         </label>
         <div class="date-row">
           <label class="field">Arrivée
-            <input id="newStart" type="date" value="${esc(state.newStart)}" oninput="updateField('newStart', this.value)" />
+            <input id="newStart" type="date" value="${esc(state.newStart)}" onchange="updateField('newStart', this.value)" />
           </label>
           <label class="field">Départ
-            <input id="newEnd" type="date" value="${esc(state.newEnd)}" min="${esc(state.newStart)}" oninput="updateField('newEnd', this.value)" />
+            <input id="newEnd" type="date" value="${esc(state.newEnd)}" min="${esc(state.newStart)}" onchange="updateField('newEnd', this.value)" />
           </label>
         </div>
         <div class="date-row">
@@ -431,10 +431,10 @@ function render() {
         </label>
         <div class="date-row">
           <label class="field">Arrivée
-            <input id="editStart" type="date" value="${esc(state.editStart)}" oninput="updateField('editStart', this.value)" />
+            <input id="editStart" type="date" value="${esc(state.editStart)}" onchange="updateField('editStart', this.value)" />
           </label>
           <label class="field">Départ
-            <input id="editEnd" type="date" value="${esc(state.editEnd)}" min="${esc(state.editStart)}" oninput="updateField('editEnd', this.value)" />
+            <input id="editEnd" type="date" value="${esc(state.editEnd)}" min="${esc(state.editStart)}" onchange="updateField('editEnd', this.value)" />
           </label>
         </div>
         <div class="date-row">
@@ -495,7 +495,7 @@ function render() {
 
 
   const otherDeparturesPicker = `<div class="other-departures-picker" onclick="stop(event)">
-      <input type="date" value="${esc(state.otherDeparturesDate)}" oninput="updateField('otherDeparturesDate', this.value)" />
+      <input type="date" value="${esc(state.otherDeparturesDate)}" onchange="updateField('otherDeparturesDate', this.value)" />
       ${state.otherDeparturesDate ? `<button type="button" class="clear-date-btn" title="Voir tous les départs à venir" onclick="updateField('otherDeparturesDate', '')">${ICONS.x(15)}</button>` : ""}
     </div>`;
 
@@ -537,7 +537,7 @@ function render() {
   const visitForm = state.showAddVisit
     ? `<form class="inline-form" onsubmit="submitAddVisit(event)">
         <input id="visitClient" style="flex:1" placeholder="Client / adresse..." value="${esc(state.visitClient)}" oninput="updateField('visitClient', this.value)" />
-        <input id="visitDate" type="date" value="${esc(state.visitDate)}" oninput="updateField('visitDate', this.value)" />
+        <input id="visitDate" type="date" value="${esc(state.visitDate)}" onchange="updateField('visitDate', this.value)" />
         <button type="submit" class="add-btn">Ajouter</button>
       </form>`
     : `<button class="add-link" onclick="openAddVisit()">${ICONS.plus(14)}Ajouter une visite</button>`;
