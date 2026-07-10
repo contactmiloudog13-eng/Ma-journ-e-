@@ -139,11 +139,15 @@ function parseLocalDate(dateStr) {
 
 // Calcule le prix total d'un séjour selon la logique de tarification.
 // start/end : "AAAA-MM-JJ" ; arrivalTime/departureTime : "HH:MM" (optionnels) ; dogsCount : 1/2/3
-function computeDogPrice(start, end, arrivalTime, departureTime, dogsCount) {
+// nightlyRate : tarif par nuit choisi (0 à 25€) — si absent/invalide, on retombe sur RATE_NUIT.
+function computeDogPrice(start, end, arrivalTime, departureTime, dogsCount, nightlyRate) {
   const d1 = parseLocalDate(start);
   const d2 = parseLocalDate(end);
   if (!d1 || !d2) return 0;
   const nights = Math.max(0, Math.round((d2 - d1) / 86400000));
+
+  const parsedRate = parseFloat(nightlyRate);
+  const rate = !isNaN(parsedRate) ? Math.min(25, Math.max(0, parsedRate)) : RATE_NUIT;
 
   let arriveeTardive = false;
   if (arrivalTime) {
@@ -165,10 +169,10 @@ function computeDogPrice(start, end, arrivalTime, departureTime, dogsCount) {
 
   let total = 0;
   if (nights > 0) {
-    const prix1 = arriveeTardive ? TARIF_ARRIVEE_TARDIVE : RATE_NUIT;
-    total += disc(prix1 + Math.max(0, nights - 1) * RATE_NUIT);
+    const prix1 = arriveeTardive ? TARIF_ARRIVEE_TARDIVE : rate;
+    total += disc(prix1 + Math.max(0, nights - 1) * rate);
   }
-  if (extraJournee) total += disc(RATE_NUIT);
+  if (extraJournee) total += disc(rate);
   if (extraDemi) total += disc(TARIF_DEMI_JOURNEE);
   return total;
 }
@@ -190,6 +194,7 @@ let state = {
   newArrivalTime: "",
   newDepartureTime: "",
   newDogsCount: "1",
+  newDailyRate: String(RATE_NUIT),
   formError: "",
   showAddVisit: false,
   visitClient: "",
@@ -204,6 +209,7 @@ let state = {
   editArrivalTime: "",
   editDepartureTime: "",
   editDogsCount: "1",
+  editDailyRate: String(RATE_NUIT),
   editError: "",
   cardsOpen: {
     appel: false,
@@ -236,14 +242,38 @@ function persist() {
 function rerender(focusId) {
   const active = document.activeElement;
   const id = focusId || (active && active.id);
-  const start = !focusId && active && typeof active.selectionStart === "number" ? active.selectionStart : null;
-  const end = !focusId && active && typeof active.selectionEnd === "number" ? active.selectionEnd : null;
+  let start = null;
+  let end = null;
+  if (!focusId && active) {
+    // Les inputs type="date"/"time"/"number" lèvent une erreur si on lit
+    // selectionStart/selectionEnd : on protège cette lecture.
+    try {
+      if (typeof active.selectionStart === "number") {
+        start = active.selectionStart;
+        end = active.selectionEnd;
+      }
+    } catch (e) { /* ce type de champ ne supporte pas la sélection */ }
+  }
+  // render() remplace tout le HTML de l'app : ça peut faire sauter le scroll.
+  // On ne mémorise/restaure la position que pour les re-rendus "normaux"
+  // (saisie, coches, etc.) — pas quand on ouvre volontairement un nouveau
+  // champ (focusId fourni), où on veut au contraire que la page défile
+  // naturellement vers ce champ.
+  const preserveScroll = !focusId;
+  const scrollX = preserveScroll ? window.scrollX : null;
+  const scrollY = preserveScroll ? window.scrollY : null;
   persist();
   render();
   if (id) {
     const el = document.getElementById(id);
     if (el) {
-      el.focus();
+      if (preserveScroll) {
+        // preventScroll: true évite que focus() ne fasse défiler la page
+        // vers l'élément, même s'il est déjà visible.
+        try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+      } else {
+        el.focus();
+      }
       if (start != null && el.setSelectionRange) {
         try { el.setSelectionRange(start, end); } catch (e) {}
       } else if (el.setSelectionRange && typeof el.value === "string") {
@@ -251,6 +281,7 @@ function rerender(focusId) {
       }
     }
   }
+  if (preserveScroll) window.scrollTo(scrollX, scrollY);
 }
 
 // ---------- actions (exposed on window for inline handlers) ----------
@@ -264,6 +295,7 @@ function resetAddForm() {
   state.newArrivalTime = "";
   state.newDepartureTime = "";
   state.newDogsCount = "1";
+  state.newDailyRate = String(RATE_NUIT);
   state.formError = "";
 }
 window.openAddDog = function () {
@@ -300,7 +332,8 @@ window.submitAddDog = function (e) {
     arrivalTime: state.newArrivalTime,
     departureTime: state.newDepartureTime,
     dogsCount: state.newDogsCount,
-    price: computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount),
+    dailyRate: state.newDailyRate,
+    price: computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate),
   });
   state.showAddDog = false;
   resetAddForm();
@@ -324,6 +357,7 @@ window.openEditDog = function (id) {
   state.editArrivalTime = d.arrivalTime || "";
   state.editDepartureTime = d.departureTime || "";
   state.editDogsCount = d.dogsCount || "1";
+  state.editDailyRate = d.dailyRate || String(RATE_NUIT);
   state.editError = "";
   state.showAddDog = false;
   rerender();
@@ -354,7 +388,8 @@ window.submitEditDog = function (e) {
           arrivalTime: state.editArrivalTime,
           departureTime: state.editDepartureTime,
           dogsCount: state.editDogsCount,
-          price: computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount),
+          dailyRate: state.editDailyRate,
+          price: computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate),
         }
       : d
   );
@@ -492,7 +527,11 @@ function render() {
             <option value="3" ${state.newDogsCount === "3" ? "selected" : ""}>3 chiens ou + (−15%)</option>
           </select>
         </label>
-        <div class="price-preview">💶 Prix total estimé : <strong>${computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount)}€</strong></div>
+        <label class="field">💶 Tarif par nuit (€)
+          <input id="newDailyRate" type="number" min="0" max="25" step="0.5" inputmode="decimal"
+            value="${esc(state.newDailyRate)}" oninput="updateField('newDailyRate', this.value)" />
+        </label>
+        <div class="price-preview">Prix total estimé : <strong>${computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate)}€</strong></div>
         <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.newPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('newPaid', ${!state.newPaid})">${state.newPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.newDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('newDeposit', ${!state.newDeposit})">${state.newDeposit ? "✓ Acompte" : "Sans acompte"}</button>
@@ -540,7 +579,11 @@ function render() {
             <option value="3" ${state.editDogsCount === "3" ? "selected" : ""}>3 chiens ou + (−15%)</option>
           </select>
         </label>
-        <div class="price-preview">💶 Prix total estimé : <strong>${computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount)}€</strong></div>
+        <label class="field">💶 Tarif par nuit (€)
+          <input id="editDailyRate" type="number" min="0" max="25" step="0.5" inputmode="decimal"
+            value="${esc(state.editDailyRate)}" oninput="updateField('editDailyRate', this.value)" />
+        </label>
+        <div class="price-preview">Prix total estimé : <strong>${computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate)}€</strong></div>
         <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.editPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('editPaid', ${!state.editPaid})">${state.editPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.editDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('editDeposit', ${!state.editDeposit})">${state.editDeposit ? "✓ Acompte" : "Sans acompte"}</button>
