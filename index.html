@@ -526,7 +526,7 @@ function render() {
             <input id="newStart" type="date" value="${esc(state.newStart)}" onchange="updateFieldDeferred('newStart', this.value)" />
           </label>
           <label class="field">Départ
-            <input id="newEnd" type="date" value="${esc(state.newEnd)}" min="${esc(state.newStart)}" onchange="updateFieldDeferred('newEnd', this.value)" />
+            <input id="newEnd" type="date" value="${esc(state.newEnd)}" onchange="updateFieldDeferred('newEnd', this.value)" />
           </label>
         </div>
         <div class="date-row">
@@ -578,7 +578,7 @@ function render() {
             <input id="editStart" type="date" value="${esc(state.editStart)}" onchange="updateFieldDeferred('editStart', this.value)" />
           </label>
           <label class="field">Départ
-            <input id="editEnd" type="date" value="${esc(state.editEnd)}" min="${esc(state.editStart)}" onchange="updateFieldDeferred('editEnd', this.value)" />
+            <input id="editEnd" type="date" value="${esc(state.editEnd)}" onchange="updateFieldDeferred('editEnd', this.value)" />
           </label>
         </div>
         <div class="date-row">
