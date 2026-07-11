@@ -201,7 +201,8 @@ h1.title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 26px; co
 .toggle-form-btn { flex: 1; border: 1px solid var(--line); border-radius: 10px; padding: 10px 0; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Manrope', sans-serif; background: #fff; color: var(--ink); box-shadow: 0 2px 0 0 rgba(58,30,61,0.06), 0 3px 8px rgba(58,30,61,0.06); transition: transform .12s ease, box-shadow .12s ease; }
 .toggle-form-btn:active { transform: translateY(2px) scale(.98); box-shadow: none; }
 .checkbox { width: 20px; height: 20px; border-radius: 6px; border: 2px solid #F0D7C2; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #fff; transition: transform .12s ease, box-shadow .2s ease; }
-.checkbox-on { background: var(--lime); border-color: var(--lime); box-shadow: 0 3px 8px rgba(92,138,34,0.4), inset 0 1px 0 rgba(255,255,255,0.4); animation: pop3d .32s cubic-bezier(.34,1.56,.64,1); }
+.checkbox-on { background: var(--lime); border-color: var(--lime); box-shadow: 0 3px 8px rgba(92,138,34,0.4), inset 0 1px 0 rgba(255,255,255,0.4); }
+.checkbox-pop { animation: pop3d .32s cubic-bezier(.34,1.56,.64,1); }
 @keyframes pop3d { 0% { transform: scale(.6) rotate(-15deg); } 65% { transform: scale(1.18) rotate(4deg); } 100% { transform: scale(1) rotate(0); } }
 .dog-name { font-weight: 700; font-size: 14.5px; flex: 1; color: var(--ink); }
 .dog-dates { font-size: 12px; color: var(--muted); white-space: nowrap; }
@@ -448,6 +449,7 @@ let state = {
   },
   otherDeparturesDate: "",
   lastDailyRate: null,
+  justToggledId: null,
 };
 
 function load() {
@@ -703,9 +705,13 @@ window.submitEditDog = function (e) {
   rerender();
 };
 window.toggleCheckin = function (id) {
-  state.dogs = state.dogs.map((d) =>
-    d.id === id ? { ...d, checkins: { ...d.checkins, [state.today]: !(d.checkins && d.checkins[state.today]) } } : d
-  );
+  let nowChecked = false;
+  state.dogs = state.dogs.map((d) => {
+    if (d.id !== id) return d;
+    nowChecked = !(d.checkins && d.checkins[state.today]);
+    return { ...d, checkins: { ...d.checkins, [state.today]: nowChecked } };
+  });
+  state.justToggledId = nowChecked ? id : null;
   rerender();
 };
 window.toggleArrivalConfirm = function (id) {
@@ -753,7 +759,7 @@ window.toggleCard = function (key) {
 // ---------- render ----------
 function render() {
   const today = state.today;
-  const presentDogs = state.dogs.filter((d) => d.start <= today && d.end >= today && (d.start !== today || d.arrivalConfirmed));
+  const presentDogs = state.dogs.filter((d) => d.start <= today && d.end >= today && (d.start !== today || d.arrivalConfirmed) && (d.end !== today || !d.departureConfirmed));
   const arrivalsToday = state.dogs.filter((d) => d.start === today && !d.arrivalConfirmed);
   const departuresToday = state.dogs.filter((d) => d.end === today && !d.departureConfirmed);
   const upcomingArrivals = state.dogs.filter((d) => d.start > today).sort((a, b) => a.start.localeCompare(b.start));
@@ -930,9 +936,10 @@ function render() {
     ? `<p class="empty-text">Aucun chien enregistré. Ajoutez-en un pour commencer l'appel.</p>`
     : `<ul class="list">${presentDogs.map((d) => {
         const checked = !!(d.checkins && d.checkins[today]);
+        const justToggled = d.id === state.justToggledId;
         return `<li class="appel-item" onclick="toggleCheckin('${d.id}')">
           <div class="row-top">
-            <span class="checkbox ${checked ? "checkbox-on" : ""}">${checked ? ICONS.check(13, "#fff") : ""}</span>
+            <span class="checkbox ${checked ? "checkbox-on" : ""} ${justToggled ? "checkbox-pop" : ""}">${checked ? ICONS.check(13, "#fff") : ""}</span>
             <span class="dog-name">${esc(d.name)}</span>
             <span class="dog-dates">${shortFR(d.start)} → ${shortFR(d.end)}</span>
             ${editButton(d)}
@@ -940,6 +947,7 @@ function render() {
           ${paymentBadges(d, true)}
         </li>`;
       }).join("")}</ul>`;
+  state.justToggledId = null;
 
   const arrivalsList = arrivalsToday.length === 0
     ? `<p class="empty-text">Aucune arrivée aujourd'hui.</p>`
