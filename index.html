@@ -156,6 +156,13 @@ h1.title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 26px; co
 .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; font-weight: 600; }
 
 .add-dog-btn { width: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--coral-deep), var(--mango-deep)); color: #fff; border: none; border-radius: var(--radius-md); padding: 14px 0; font-size: 14.5px; font-weight: 800; letter-spacing: .2px; cursor: pointer; margin-bottom: 20px; box-shadow: 0 5px 0 0 var(--edge-coral), 0 14px 26px rgba(226,58,74,0.32), 0 2px 8px rgba(226,58,74,0.20), inset 0 1px 0 rgba(255,255,255,0.35); font-family: inherit; text-shadow: 0 1px 2px rgba(0,0,0,.18); transition: transform .12s ease, box-shadow .12s ease; }
+
+/* ---------- chiffre d'affaires estimé ---------- */
+.revenue-banner { display: flex; align-items: center; gap: 14px; background: linear-gradient(150deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.06) 35%, rgba(255,255,255,0) 60%), linear-gradient(135deg, var(--grape), var(--plum)); border-radius: var(--radius-md); padding: 16px 18px; margin-bottom: 18px; box-shadow: 0 10px 24px rgba(74,37,87,0.30), 0 2px 8px rgba(74,37,87,0.18), inset 0 1px 0 rgba(255,255,255,0.25); }
+.revenue-icon-chip { width: 42px; height: 42px; border-radius: 13px; background: rgba(255,255,255,0.18); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,0.3); }
+.revenue-text { display: flex; flex-direction: column; gap: 1px; }
+.revenue-value { font-size: 22px; font-weight: 800; color: #fff; font-family: 'Fraunces', serif; line-height: 1.1; text-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.revenue-label { font-size: 12px; color: rgba(255,255,255,0.82); font-weight: 600; }
 @media (hover: hover) { .add-dog-btn:hover { transform: translateY(-2px); box-shadow: 0 7px 0 0 var(--edge-coral), 0 18px 32px rgba(226,58,74,0.36), 0 2px 8px rgba(226,58,74,0.20), inset 0 1px 0 rgba(255,255,255,0.35); } }
 .add-dog-btn:active { transform: translateY(4px); box-shadow: 0 1px 0 0 var(--edge-coral), 0 4px 10px rgba(226,58,74,0.28), inset 0 1px 0 rgba(255,255,255,0.2); }
 
@@ -262,6 +269,7 @@ const ICONS = {
   pencil: (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`,
   calendar: (size, color) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color||'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>`,
   chevron: (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`,
+  euro: (size, color) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color||'currentColor'}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h12"/><path d="M4 14h9"/><path d="M19 6a7.7 7.7 0 0 0-5.2-2A7.9 7.9 0 0 0 6 12a7.9 7.9 0 0 0 7.8 8 7.7 7.7 0 0 0 5.2-2"/></svg>`,
 };
 
 // ---------- date helpers ----------
@@ -765,6 +773,7 @@ function render() {
   const upcomingArrivals = state.dogs.filter((d) => d.start > today).sort((a, b) => a.start.localeCompare(b.start));
   const checkedInCount = presentDogs.filter((d) => d.checkins && d.checkins[today]).length;
   const visitsToday = state.visits.filter((v) => v.date === today);
+  const totalRevenue = Math.round(state.dogs.reduce((sum, d) => sum + (typeof d.price === "number" ? d.price : 0), 0) * 100) / 100;
 
   const futureDepartures = state.dogs.filter((d) => d.end > today).sort((a, b) => a.end.localeCompare(b.end));
   const otherDepartures = state.otherDeparturesDate
@@ -1050,6 +1059,14 @@ function render() {
         ${statCard(ICONS.droplet(20, "#D33A54", "#FFC7CF"), departuresToday.length, "Départs aujourd'hui", "departures")}
         ${statCard(ICONS.paw(20, "#5C8A22"), `${presentDogs.length}/${state.dogs.length}`, "Chiens présents", "present")}
         ${statCard(ICONS.home(20, "#157A70"), visitsToday.length, "Visites à domicile", "visits")}
+      </div>
+
+      <div class="revenue-banner">
+        <span class="revenue-icon-chip">${ICONS.euro(20, "#fff")}</span>
+        <div class="revenue-text">
+          <span class="revenue-value">${totalRevenue.toLocaleString("fr-FR")}€</span>
+          <span class="revenue-label">Chiffre d'affaires estimé (réservations enregistrées)</span>
+        </div>
       </div>
 
       <button class="add-dog-btn" onclick="openAddDog()">${ICONS.plus(16)}&nbsp;Ajouter un chien</button>
