@@ -179,6 +179,22 @@ function computeDogPrice(start, end, arrivalTime, departureTime, dogsCount, nigh
 
 const STORAGE_KEY = "ma-journee-data-v1";
 
+// badges d'affichage uniquement (non cliquables) : le statut ne se change que via "Modifier"
+// Sortie du render() pour pouvoir être réutilisée par refreshLiveFields() sans tout reconstruire.
+function paymentBadges(d, indent) {
+  const depositLabel = d.deposit
+    ? `✓ Acompte${d.depositAmount ? " " + esc(d.depositAmount) + "€" : ""}`
+    : "Sans acompte";
+  return `<div class="${indent ? "payment-row-indent" : "payment-row"}">
+    ${typeof d.price === "number" ? `<span class="price-badge">💶 ${d.price}€</span>` : ""}
+    <span class="pay-badge ${d.paid ? "pay-badge-on" : "pay-badge-off"}" style="cursor:default;">${d.paid ? "✓ Payé" : "Non payé"}</span>
+    <span class="pay-badge ${d.deposit ? "deposit-badge-on" : "pay-badge-off"}" style="cursor:default;">${depositLabel}</span>
+  </div>`;
+}
+function editButton(d) {
+  return `<button class="icon-btn" onclick="event.stopPropagation(); openEditDog('${d.id}')" title="Modifier">${ICONS.pencil(15)}</button>`;
+}
+
 // ---------- state ----------
 let state = {
   dogs: [],
@@ -318,17 +334,55 @@ window.updateField = function (field, value) {
   state[field] = value;
   rerender();
 };
-// Pour les champs date/heure : sur mobile, le sélecteur natif est encore en
-// train de se refermer quand "change" se déclenche. Reconstruire tout le DOM
-// à ce moment-là entre en conflit avec son animation de fermeture (double-tap
-// nécessaire, flash visuel). On laisse un instant au picker pour se fermer
-// avant de re-render.
+// Pour les champs date/heure : sur mobile, reconstruire tout le DOM juste après
+// un choix de date ferme le sélecteur natif en pleine interaction (le champ
+// "disparaît puis revient"). On évite donc totalement le render() complet ici :
+// on met juste à jour l'état + les quelques éléments qui en dépendent
+// (aperçu de prix, liste filtrée), sans jamais toucher au champ lui-même.
 window.updateFieldDeferred = function (field, value) {
-  setTimeout(() => {
-    state[field] = value;
-    rerender();
-  }, 300);
+  state[field] = value;
+  persist();
+  refreshLiveFields(field);
 };
+function refreshLiveFields(field) {
+  if (["newStart", "newEnd", "newArrivalTime", "newDepartureTime"].includes(field)) {
+    const el = document.getElementById("newPricePreview");
+    if (el) el.textContent = computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate) + "€";
+  }
+  if (["editStart", "editEnd", "editArrivalTime", "editDepartureTime"].includes(field)) {
+    const el = document.getElementById("editPricePreview");
+    if (el) el.textContent = computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate) + "€";
+  }
+  if (field === "otherDeparturesDate") {
+    const clearWrap = document.getElementById("otherDeparturesClearWrap");
+    if (clearWrap) {
+      clearWrap.innerHTML = state.otherDeparturesDate
+        ? `<button type="button" class="clear-date-btn" title="Voir tous les départs à venir" onclick="updateField('otherDeparturesDate', '')">${ICONS.x(15)}</button>`
+        : "";
+    }
+    const listWrap = document.getElementById("otherDeparturesListWrap");
+    if (listWrap) {
+      const today = state.today;
+      const futureDepartures = state.dogs.filter((d) => d.end > today).sort((a, b) => a.end.localeCompare(b.end));
+      const otherDepartures = state.otherDeparturesDate
+        ? futureDepartures.filter((d) => d.end === state.otherDeparturesDate)
+        : futureDepartures;
+      listWrap.innerHTML = otherDepartures.length === 0
+        ? `<p class="empty-text">${state.otherDeparturesDate ? "Aucun départ ce jour-là." : "Aucun départ prévu dans les jours qui suivent."}</p>`
+        : `<ul class="list">${otherDepartures.map((d) => `
+            <li class="row-item">
+              <div class="row-top">
+                <span class="dog-name">${esc(d.name)}</span>
+                <span class="dog-dates">part le ${shortFR(d.end)}</span>
+                ${editButton(d)}
+                <button class="trash-btn" onclick="removeDog('${d.id}')">${ICONS.trash(15)}</button>
+              </div>
+              ${paymentBadges(d, false)}
+            </li>`).join("")}</ul>`;
+    }
+  }
+  // visitDate : pas d'aperçu en direct, seulement utilisé à la soumission du formulaire.
+}
 window.submitAddDog = function (e) {
   e.preventDefault();
   const name = state.newName.trim();
@@ -491,22 +545,6 @@ function render() {
     </div>`;
   }
 
-  // badges d'affichage uniquement (non cliquables) : le statut ne se change que via "Modifier"
-  function paymentBadges(d, indent) {
-    const depositLabel = d.deposit
-      ? `✓ Acompte${d.depositAmount ? " " + esc(d.depositAmount) + "€" : ""}`
-      : "Sans acompte";
-    return `<div class="${indent ? "payment-row-indent" : "payment-row"}">
-      ${typeof d.price === "number" ? `<span class="price-badge">💶 ${d.price}€</span>` : ""}
-      <span class="pay-badge ${d.paid ? "pay-badge-on" : "pay-badge-off"}" style="cursor:default;">${d.paid ? "✓ Payé" : "Non payé"}</span>
-      <span class="pay-badge ${d.deposit ? "deposit-badge-on" : "pay-badge-off"}" style="cursor:default;">${depositLabel}</span>
-    </div>`;
-  }
-
-  function editButton(d) {
-    return `<button class="icon-btn" onclick="event.stopPropagation(); openEditDog('${d.id}')" title="Modifier">${ICONS.pencil(15)}</button>`;
-  }
-
   function statCard(icon, value, label) {
     return `<div class="stat-card"><div class="stat-icon">${icon}</div><div class="stat-value">${esc(value)}</div><div class="stat-label">${esc(label)}</div></div>`;
   }
@@ -548,7 +586,7 @@ function render() {
           <input id="newDailyRate" type="number" min="0" max="25" step="0.5" inputmode="decimal"
             value="${esc(state.newDailyRate)}" oninput="updateField('newDailyRate', this.value)" />
         </label>
-        <div class="price-preview">Prix total estimé : <strong>${computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate)}€</strong></div>
+        <div class="price-preview">Prix total estimé : <strong id="newPricePreview">${computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate)}€</strong></div>
         <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.newPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('newPaid', ${!state.newPaid})">${state.newPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.newDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('newDeposit', ${!state.newDeposit})">${state.newDeposit ? "✓ Acompte" : "Sans acompte"}</button>
@@ -600,7 +638,7 @@ function render() {
           <input id="editDailyRate" type="number" min="0" max="25" step="0.5" inputmode="decimal"
             value="${esc(state.editDailyRate)}" oninput="updateField('editDailyRate', this.value)" />
         </label>
-        <div class="price-preview">Prix total estimé : <strong>${computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate)}€</strong></div>
+        <div class="price-preview">Prix total estimé : <strong id="editPricePreview">${computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate)}€</strong></div>
         <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.editPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('editPaid', ${!state.editPaid})">${state.editPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.editDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('editDeposit', ${!state.editDeposit})">${state.editDeposit ? "✓ Acompte" : "Sans acompte"}</button>
@@ -660,10 +698,10 @@ function render() {
 
   const otherDeparturesPicker = `<div class="other-departures-picker" onclick="stop(event)">
       <input type="date" value="${esc(state.otherDeparturesDate)}" onchange="updateFieldDeferred('otherDeparturesDate', this.value)" />
-      ${state.otherDeparturesDate ? `<button type="button" class="clear-date-btn" title="Voir tous les départs à venir" onclick="updateField('otherDeparturesDate', '')">${ICONS.x(15)}</button>` : ""}
+      <span id="otherDeparturesClearWrap">${state.otherDeparturesDate ? `<button type="button" class="clear-date-btn" title="Voir tous les départs à venir" onclick="updateField('otherDeparturesDate', '')">${ICONS.x(15)}</button>` : ""}</span>
     </div>`;
 
-  const otherDeparturesList = otherDepartures.length === 0
+  const otherDeparturesList = `<div id="otherDeparturesListWrap">${otherDepartures.length === 0
     ? `<p class="empty-text">${state.otherDeparturesDate ? "Aucun départ ce jour-là." : "Aucun départ prévu dans les jours qui suivent."}</p>`
     : `<ul class="list">${otherDepartures.map((d) => `
         <li class="row-item">
@@ -674,7 +712,8 @@ function render() {
             <button class="trash-btn" onclick="removeDog('${d.id}')">${ICONS.trash(15)}</button>
           </div>
           ${paymentBadges(d, false)}
-        </li>`).join("")}</ul>`;
+        </li>`).join("")}</ul>`}</div>`;
+
 
   const upcomingList = upcomingArrivals.length === 0
     ? `<p class="empty-text">Aucune arrivée prévue dans les jours qui suivent.</p>`
