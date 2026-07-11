@@ -86,6 +86,10 @@ body {
   * { transition: none !important; animation: none !important; }
 }
 
+/* ---------- voile de protection sous la barre de statut (évite que le texte
+   se superpose à l'heure/batterie quand on scrolle, en PWA plein écran) ---------- */
+.status-scrim { position: fixed; top: 0; left: 0; right: 0; height: max(46px, env(safe-area-inset-top)); background: linear-gradient(180deg, rgba(255,248,236,0.95) 0%, rgba(255,238,221,0.75) 65%, rgba(255,238,221,0) 100%); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px); z-index: 50; pointer-events: none; }
+
 /* ---------- décor : fruits en fond (purement décoratif) ---------- */
 .bg-decor { position: fixed; inset: 0; overflow: hidden; z-index: 0; pointer-events: none; }
 .bg-blob { position: absolute; border-radius: 50%; filter: blur(64px); }
@@ -191,6 +195,9 @@ h1.title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 26px; co
 .pay-badge-off { background: var(--coral-soft-bg); color: var(--coral-soft-text); border-color: var(--coral-soft-line); }
 .pay-badge-on { background: var(--lime-soft-bg); color: var(--lime-soft-text); border-color: var(--lime-soft-line); box-shadow: 0 2px 6px rgba(92,138,34,0.25); }
 .deposit-badge-on { background: var(--grape-soft-bg); color: var(--grape-soft-text); border-color: #DCD4F5; }
+.walk-badge-on { background: var(--turquoise-soft-bg); color: var(--turquoise-deep); border-color: #BFE9E2; box-shadow: 0 2px 6px rgba(21,122,112,0.22); }
+.walk-section { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed var(--turquoise); border-radius: 12px; background: rgba(220,245,241,0.25); }
+.offer-badge { font-size: 12.5px; color: var(--lime-soft-text); background: var(--lime-soft-bg); padding: 5px 11px; border-radius: 999px; font-weight: 700; align-self: flex-start; }
 .toggle-form-btn { flex: 1; border: 1px solid var(--line); border-radius: 10px; padding: 10px 0; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Manrope', sans-serif; background: #fff; color: var(--ink); box-shadow: 0 2px 0 0 rgba(58,30,61,0.06), 0 3px 8px rgba(58,30,61,0.06); transition: transform .12s ease, box-shadow .12s ease; }
 .toggle-form-btn:active { transform: translateY(2px) scale(.98); box-shadow: none; }
 .checkbox { width: 20px; height: 20px; border-radius: 6px; border: 2px solid #F0D7C2; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #fff; transition: transform .12s ease, box-shadow .2s ease; }
@@ -223,6 +230,7 @@ svg { display: block; }
 </style>
 </head>
 <body>
+<div class="status-scrim" aria-hidden="true"></div>
 <div class="bg-decor" aria-hidden="true">
   <div class="bg-blob bg-blob--mango"></div>
   <div class="bg-blob bg-blob--coral"></div>
@@ -322,11 +330,44 @@ function computeDogPrice(start, end, arrivalTime, departureTime, dogsCount, nigh
   let total = 0;
   if (nights > 0) {
     const prix1 = arriveeTardive ? TARIF_ARRIVEE_TARDIVE : rate;
-    total += disc(prix1 + Math.max(0, nights - 1) * rate);
+    total += disc(nb * (prix1 + Math.max(0, nights - 1) * rate));
   }
-  if (extraJournee) total += disc(rate);
-  if (extraDemi) total += disc(TARIF_DEMI_JOURNEE);
+  if (extraJournee) total += disc(nb * rate);
+  if (extraDemi) total += disc(nb * TARIF_DEMI_JOURNEE);
   return total;
+}
+
+// ---------- option balade (supplément) ----------
+const RATE_BALADE_30MIN = 6;  // balade de 30 min
+const RATE_BALADE_1H = 9;     // balade de 1h
+const RATE_BALADE_OFFRE = 6;  // tarif offre dès le seuil ci-dessous
+const SEUIL_OFFRE_BALADE = 5; // à partir de 5 balades ou plus (jour ou semaine), tarif ramené à 6€
+
+// Tarif appliqué par balade selon la durée choisie et le nombre demandé (l'offre écrase le tarif normal).
+function walkUnitPrice(duration, count) {
+  const n = parseInt(count) || 0;
+  if (n >= SEUIL_OFFRE_BALADE) return RATE_BALADE_OFFRE;
+  return duration === "60" ? RATE_BALADE_1H : RATE_BALADE_30MIN;
+}
+
+// Calcule le supplément balade total sur toute la durée du séjour.
+// frequency: "day" (balades/jour, multiplié par le nb de jours du séjour) ou "week" (balades/semaine, multiplié par le nb de semaines).
+function computeWalkPrice(start, end, walkEnabled, walkDuration, walkFrequency, walkCount) {
+  if (!walkEnabled) return 0;
+  const n = parseInt(walkCount) || 0;
+  if (n <= 0) return 0;
+  const d1 = parseLocalDate(start);
+  const d2 = parseLocalDate(end);
+  const nights = d1 && d2 ? Math.max(0, Math.round((d2 - d1) / 86400000)) : 0;
+  const days = Math.max(1, nights);
+  const periods = walkFrequency === "week" ? Math.max(1, Math.ceil(days / 7)) : days;
+  return periods * n * walkUnitPrice(walkDuration, n);
+}
+
+// Prix total = pension + supplément balade.
+function computeTotalPrice(start, end, arrivalTime, departureTime, dogsCount, nightlyRate, walkEnabled, walkDuration, walkFrequency, walkCount) {
+  return computeDogPrice(start, end, arrivalTime, departureTime, dogsCount, nightlyRate)
+    + computeWalkPrice(start, end, walkEnabled, walkDuration, walkFrequency, walkCount);
 }
 
 const STORAGE_KEY = "ma-journee-data-v1";
@@ -339,6 +380,7 @@ function paymentBadges(d, indent) {
     : "Sans acompte";
   return `<div class="${indent ? "payment-row-indent" : "payment-row"}">
     ${typeof d.price === "number" ? `<span class="price-badge">💶 ${d.price}€</span>` : ""}
+    ${d.walkEnabled ? `<span class="price-badge">🐾 ${d.walkCount || 0}/${d.walkFrequency === "week" ? "sem" : "j"} · ${d.walkDuration === "60" ? "1h" : "30min"}</span>` : ""}
     <span class="pay-badge ${d.paid ? "pay-badge-on" : "pay-badge-off"}" style="cursor:default;">${d.paid ? "✓ Payé" : "Non payé"}</span>
     <span class="pay-badge ${d.deposit ? "deposit-badge-on" : "pay-badge-off"}" style="cursor:default;">${depositLabel}</span>
   </div>`;
@@ -363,6 +405,10 @@ let state = {
   newDepartureTime: "",
   newDogsCount: "1",
   newDailyRate: String(RATE_NUIT),
+  newWalkEnabled: false,
+  newWalkDuration: "30",
+  newWalkFrequency: "day",
+  newWalkCount: "",
   formError: "",
   showAddVisit: false,
   visitClient: "",
@@ -378,6 +424,10 @@ let state = {
   editDepartureTime: "",
   editDogsCount: "1",
   editDailyRate: String(RATE_NUIT),
+  editWalkEnabled: false,
+  editWalkDuration: "30",
+  editWalkFrequency: "day",
+  editWalkCount: "",
   editError: "",
   cardsOpen: {
     appel: false,
@@ -475,6 +525,10 @@ function resetAddForm() {
   state.newDepartureTime = "";
   state.newDogsCount = "1";
   state.newDailyRate = state.lastDailyRate != null ? state.lastDailyRate : String(RATE_NUIT);
+  state.newWalkEnabled = false;
+  state.newWalkDuration = "30";
+  state.newWalkFrequency = "day";
+  state.newWalkCount = "";
   state.formError = "";
 }
 window.openAddDog = function () {
@@ -504,11 +558,11 @@ window.updateFieldDeferred = function (field, value) {
 function refreshLiveFields(field) {
   if (["newStart", "newEnd", "newArrivalTime", "newDepartureTime"].includes(field)) {
     const el = document.getElementById("newPricePreview");
-    if (el) el.textContent = computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate) + "€";
+    if (el) el.textContent = computeTotalPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount) + "€";
   }
   if (["editStart", "editEnd", "editArrivalTime", "editDepartureTime"].includes(field)) {
     const el = document.getElementById("editPricePreview");
-    if (el) el.textContent = computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate) + "€";
+    if (el) el.textContent = computeTotalPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount) + "€";
   }
   if (field === "otherDeparturesDate") {
     const clearWrap = document.getElementById("otherDeparturesClearWrap");
@@ -561,7 +615,12 @@ window.submitAddDog = function (e) {
     departureTime: state.newDepartureTime,
     dogsCount: state.newDogsCount,
     dailyRate: state.newDailyRate,
-    price: computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate),
+    walkEnabled: state.newWalkEnabled,
+    walkDuration: state.newWalkDuration,
+    walkFrequency: state.newWalkFrequency,
+    walkCount: state.newWalkCount,
+    walkPrice: computeWalkPrice(state.newStart, state.newEnd, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount),
+    price: computeTotalPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount),
   });
   state.lastDailyRate = state.newDailyRate;
   state.showAddDog = false;
@@ -587,6 +646,10 @@ window.openEditDog = function (id) {
   state.editDepartureTime = d.departureTime || "";
   state.editDogsCount = d.dogsCount || "1";
   state.editDailyRate = d.dailyRate || String(RATE_NUIT);
+  state.editWalkEnabled = d.walkEnabled || false;
+  state.editWalkDuration = d.walkDuration || "30";
+  state.editWalkFrequency = d.walkFrequency || "day";
+  state.editWalkCount = d.walkCount || "";
   state.editError = "";
   state.showAddDog = false;
   rerender();
@@ -618,7 +681,12 @@ window.submitEditDog = function (e) {
           departureTime: state.editDepartureTime,
           dogsCount: state.editDogsCount,
           dailyRate: state.editDailyRate,
-          price: computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate),
+          walkEnabled: state.editWalkEnabled,
+          walkDuration: state.editWalkDuration,
+          walkFrequency: state.editWalkFrequency,
+          walkCount: state.editWalkCount,
+          walkPrice: computeWalkPrice(state.editStart, state.editEnd, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount),
+          price: computeTotalPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount),
         }
       : d
   );
@@ -745,7 +813,25 @@ function render() {
           <input id="newDailyRate" type="number" min="0" max="25" step="0.5" inputmode="decimal"
             value="${esc(state.newDailyRate)}" oninput="updateField('newDailyRate', this.value)" />
         </label>
-        <div class="price-preview">Prix total estimé : <strong id="newPricePreview">${computeDogPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate)}€</strong></div>
+        <div class="walk-section">
+          <button type="button" class="toggle-form-btn ${state.newWalkEnabled ? "walk-badge-on" : ""}" onclick="updateField('newWalkEnabled', ${!state.newWalkEnabled})">🐾 ${state.newWalkEnabled ? "Balade ajoutée" : "+ Ajouter une balade"}</button>
+          ${state.newWalkEnabled ? `
+          <div class="date-row">
+            <button type="button" class="toggle-form-btn ${state.newWalkDuration === "30" ? "walk-badge-on" : ""}" onclick="updateField('newWalkDuration', '30')">30 min · 6€</button>
+            <button type="button" class="toggle-form-btn ${state.newWalkDuration === "60" ? "walk-badge-on" : ""}" onclick="updateField('newWalkDuration', '60')">1h · 9€</button>
+          </div>
+          <div class="date-row">
+            <button type="button" class="toggle-form-btn ${state.newWalkFrequency === "day" ? "walk-badge-on" : ""}" onclick="updateField('newWalkFrequency', 'day')">Par jour</button>
+            <button type="button" class="toggle-form-btn ${state.newWalkFrequency === "week" ? "walk-badge-on" : ""}" onclick="updateField('newWalkFrequency', 'week')">Par semaine</button>
+          </div>
+          <label class="field">Nombre de balades souhaité (${state.newWalkFrequency === "week" ? "par semaine" : "par jour"})
+            <input id="newWalkCount" type="number" min="0" step="1" inputmode="numeric"
+              value="${esc(state.newWalkCount)}" oninput="updateField('newWalkCount', this.value)" placeholder="ex. 1" />
+          </label>
+          ${(parseInt(state.newWalkCount) || 0) >= SEUIL_OFFRE_BALADE ? `<span class="offer-badge">🎁 Offre appliquée : 6€ / balade</span>` : ""}
+          ` : ""}
+        </div>
+        <div class="price-preview">Prix total estimé : <strong id="newPricePreview">${computeTotalPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount)}€</strong></div>
         <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.newPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('newPaid', ${!state.newPaid})">${state.newPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.newDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('newDeposit', ${!state.newDeposit})">${state.newDeposit ? "✓ Acompte" : "Sans acompte"}</button>
@@ -797,7 +883,25 @@ function render() {
           <input id="editDailyRate" type="number" min="0" max="25" step="0.5" inputmode="decimal"
             value="${esc(state.editDailyRate)}" oninput="updateField('editDailyRate', this.value)" />
         </label>
-        <div class="price-preview">Prix total estimé : <strong id="editPricePreview">${computeDogPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate)}€</strong></div>
+        <div class="walk-section">
+          <button type="button" class="toggle-form-btn ${state.editWalkEnabled ? "walk-badge-on" : ""}" onclick="updateField('editWalkEnabled', ${!state.editWalkEnabled})">🐾 ${state.editWalkEnabled ? "Balade ajoutée" : "+ Ajouter une balade"}</button>
+          ${state.editWalkEnabled ? `
+          <div class="date-row">
+            <button type="button" class="toggle-form-btn ${state.editWalkDuration === "30" ? "walk-badge-on" : ""}" onclick="updateField('editWalkDuration', '30')">30 min · 6€</button>
+            <button type="button" class="toggle-form-btn ${state.editWalkDuration === "60" ? "walk-badge-on" : ""}" onclick="updateField('editWalkDuration', '60')">1h · 9€</button>
+          </div>
+          <div class="date-row">
+            <button type="button" class="toggle-form-btn ${state.editWalkFrequency === "day" ? "walk-badge-on" : ""}" onclick="updateField('editWalkFrequency', 'day')">Par jour</button>
+            <button type="button" class="toggle-form-btn ${state.editWalkFrequency === "week" ? "walk-badge-on" : ""}" onclick="updateField('editWalkFrequency', 'week')">Par semaine</button>
+          </div>
+          <label class="field">Nombre de balades souhaité (${state.editWalkFrequency === "week" ? "par semaine" : "par jour"})
+            <input id="editWalkCount" type="number" min="0" step="1" inputmode="numeric"
+              value="${esc(state.editWalkCount)}" oninput="updateField('editWalkCount', this.value)" placeholder="ex. 1" />
+          </label>
+          ${(parseInt(state.editWalkCount) || 0) >= SEUIL_OFFRE_BALADE ? `<span class="offer-badge">🎁 Offre appliquée : 6€ / balade</span>` : ""}
+          ` : ""}
+        </div>
+        <div class="price-preview">Prix total estimé : <strong id="editPricePreview">${computeTotalPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount)}€</strong></div>
         <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.editPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('editPaid', ${!state.editPaid})">${state.editPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.editDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('editDeposit', ${!state.editDeposit})">${state.editDeposit ? "✓ Acompte" : "Sans acompte"}</button>
