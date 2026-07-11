@@ -219,6 +219,7 @@ button:focus-visible, .icon-btn:focus-visible, .trash-btn:focus-visible, .clear-
 .error-text { color: var(--coral-deep); font-size: 12.5px; font-weight: 600; }
 .price-preview { background: var(--mango-soft-bg); border: 1px solid var(--mango-soft-line); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; color: var(--plum); font-weight: 600; margin-bottom: 6px; }
 .price-badge { color: var(--plum); font-weight: 700; font-size: 11.5px; background: var(--mango-soft-bg); border: 1px solid var(--mango-soft-line); border-radius: 999px; padding: 4px 10px; font-family: 'Manrope', sans-serif; }
+.remaining-badge { background: var(--coral-soft-bg); color: var(--coral-soft-text); border-color: var(--coral-soft-line); }
 .submit-btn { background: linear-gradient(135deg, var(--coral-deep), var(--mango-deep)); color: #fff; border: none; border-radius: 10px; padding: 11px 0; font-size: 14px; font-weight: 800; cursor: pointer; margin-top: 2px; font-family: inherit; text-shadow: 0 1px 2px rgba(0,0,0,.18); box-shadow: 0 4px 0 0 var(--edge-coral), 0 8px 18px rgba(226,58,74,0.26), inset 0 1px 0 rgba(255,255,255,0.3); transition: transform .12s ease, box-shadow .12s ease; }
 .submit-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 0 var(--edge-coral), 0 3px 8px rgba(226,58,74,0.22); }
 .inline-form { display: flex; gap: 8px; margin-top: 12px; }
@@ -370,6 +371,12 @@ function computeTotalPrice(start, end, arrivalTime, departureTime, dogsCount, ni
     + computeWalkPrice(start, end, walkEnabled, walkDuration, walkFrequency, walkCount);
 }
 
+// Reste à payer = prix total - acompte déjà versé (jamais négatif).
+function computeRemaining(totalPrice, depositAmount) {
+  const dep = parseFloat(depositAmount) || 0;
+  return Math.max(0, Math.round((totalPrice - dep) * 100) / 100);
+}
+
 const STORAGE_KEY = "ma-journee-data-v1";
 
 // badges d'affichage uniquement (non cliquables) : le statut ne se change que via "Modifier"
@@ -378,11 +385,13 @@ function paymentBadges(d, indent) {
   const depositLabel = d.deposit
     ? `✓ Acompte${d.depositAmount ? " " + esc(d.depositAmount) + "€" : ""}`
     : "Sans acompte";
+  const remaining = d.deposit && !d.paid && typeof d.price === "number" ? computeRemaining(d.price, d.depositAmount) : null;
   return `<div class="${indent ? "payment-row-indent" : "payment-row"}">
     ${typeof d.price === "number" ? `<span class="price-badge">💶 ${d.price}€</span>` : ""}
     ${d.walkEnabled ? `<span class="price-badge">🐾 ${d.walkCount || 0}/${d.walkFrequency === "week" ? "sem" : "j"} · ${d.walkDuration === "60" ? "1h" : "30min"}</span>` : ""}
     <span class="pay-badge ${d.paid ? "pay-badge-on" : "pay-badge-off"}" style="cursor:default;">${d.paid ? "✓ Payé" : "Non payé"}</span>
     <span class="pay-badge ${d.deposit ? "deposit-badge-on" : "pay-badge-off"}" style="cursor:default;">${depositLabel}</span>
+    ${remaining !== null ? `<span class="price-badge remaining-badge">Reste à payer : ${remaining}€</span>` : ""}
   </div>`;
 }
 function editButton(d) {
@@ -839,7 +848,8 @@ function render() {
         ${state.newDeposit ? `
         <label class="field">Montant de l'acompte (€)
           <input id="newDepositAmount" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(state.newDepositAmount)}" oninput="updateField('newDepositAmount', this.value)" placeholder="ex. 30" />
-        </label>` : ""}
+        </label>
+        <div class="price-preview remaining-badge">Reste à payer : <strong>${computeRemaining(computeTotalPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount), state.newDepositAmount)}€</strong></div>` : ""}
         ${state.formError ? `<div class="error-text">${esc(state.formError)}</div>` : ""}
         <button type="submit" class="submit-btn">Enregistrer le chien</button>
       </form>
@@ -909,7 +919,8 @@ function render() {
         ${state.editDeposit ? `
         <label class="field">Montant de l'acompte (€)
           <input id="editDepositAmount" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(state.editDepositAmount)}" oninput="updateField('editDepositAmount', this.value)" placeholder="ex. 30" />
-        </label>` : ""}
+        </label>
+        <div class="price-preview remaining-badge">Reste à payer : <strong>${computeRemaining(computeTotalPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount), state.editDepositAmount)}€</strong></div>` : ""}
         ${state.editError ? `<div class="error-text">${esc(state.editError)}</div>` : ""}
         <button type="submit" class="submit-btn">Enregistrer les modifications</button>
       </form>
