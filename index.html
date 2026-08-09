@@ -204,6 +204,14 @@ h1.title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 26px; co
 .deposit-badge-on { background: var(--grape-soft-bg); color: var(--grape-soft-text); border-color: #DCD4F5; }
 .walk-badge-on { background: var(--turquoise-soft-bg); color: var(--turquoise-deep); border-color: #BFE9E2; box-shadow: 0 2px 6px rgba(21,122,112,0.22); }
 .walk-section { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed var(--turquoise); border-radius: 12px; background: rgba(220,245,241,0.25); }
+.service-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.service-badge-on { background: var(--mango-soft-bg); color: var(--mango-deep); border-color: var(--mango-soft-line); box-shadow: 0 2px 6px rgba(224,107,30,0.22); }
+.animal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.animal-badge-on { background: var(--grape-soft-bg); color: var(--grape-soft-text); border-color: #DCD4F5; }
+.section-label { display: block; font-size: 12.5px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+.field-hint { font-weight: 400; color: var(--muted); font-size: 11.5px; }
+.field-block { display: flex; flex-direction: column; margin-bottom: 2px; }
+.service-badge-chip { font-size: 11.5px; font-weight: 700; background: var(--mango-soft-bg); color: var(--mango-deep); border: 1px solid var(--mango-soft-line); border-radius: 999px; padding: 4px 10px; font-family: 'Manrope', sans-serif; }
 .offer-badge { font-size: 12.5px; color: var(--lime-soft-text); background: var(--lime-soft-bg); padding: 5px 11px; border-radius: 999px; font-weight: 700; align-self: flex-start; }
 .toggle-form-btn { flex: 1; border: 1px solid var(--line); border-radius: 10px; padding: 10px 0; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Manrope', sans-serif; background: #fff; color: var(--ink); box-shadow: 0 2px 0 0 rgba(58,30,61,0.06), 0 3px 8px rgba(58,30,61,0.06); transition: transform .12s ease, box-shadow .12s ease; }
 .toggle-form-btn:active { transform: translateY(2px) scale(.98); box-shadow: none; }
@@ -294,12 +302,26 @@ function esc(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// ---------- tarifs & calcul automatique du prix (pension) ----------
-const RATE_NUIT = 25;       // prix d'une nuit de pension
-const REMISE_2_CHIENS = 0.10; // -10% à partir de 2 chiens (même réservation)
-const REMISE_3_CHIENS = 0.15; // -15% à partir de 3 chiens (même réservation)
-const TARIF_ARRIVEE_TARDIVE = 10; // 1ère nuit à 10€ si arrivée entre 13h30 et 19h
-const TARIF_DEMI_JOURNEE = 10;    // départ entre 9h et 13h
+// ---------- tarifs & calcul automatique du prix (tous services, alignés sur l'admin) ----------
+const RATE_NUIT = 25;          // pension : prix d'une nuit (personnalisable par réservation, 0-25€)
+const RATE_GARDERIE = 20;      // garderie journée
+const TARIF_DEMI_JOURNEE = 10; // demi-journée (et "jour de départ" réduit en pension)
+const RATE_PROMENADE = 15;     // promenade en service seul (sortie ponctuelle, ≠ supplément balade)
+const RATE_EVASION = 35;       // forfait Évasion / journée
+const RATE_TOILETTAGE = 30;    // toilettage (forfait fixe : pas de remise multi-chiens, pas de supplément)
+const REMISE_2_CHIENS = 0.10;  // -10% à partir de 2 chiens (même réservation)
+const REMISE_3_CHIENS = 0.15;  // -15% à partir de 3 chiens (même réservation)
+const TARIF_ARRIVEE_TARDIVE = 10; // 1ère nuit à 10€ si arrivée entre 13h30 et 19h (pension uniquement)
+
+const SERVICE_LABELS = {
+  pension: "🏠 Pension",
+  garderie: "☀️ Garderie",
+  demi: "🌤️ Demi-journée",
+  promenade: "🦮 Promenade",
+  evasion: "🏔️ Évasion",
+  toilettage: "🛁 Toilettage",
+};
+const SERVICE_ORDER = ["pension", "garderie", "demi", "promenade", "evasion", "toilettage"];
 
 function parseLocalDate(dateStr) {
   if (!dateStr) return null;
@@ -307,49 +329,9 @@ function parseLocalDate(dateStr) {
   return new Date(y, m - 1, d);
 }
 
-// Calcule le prix total d'un séjour selon la logique de tarification.
-// start/end : "AAAA-MM-JJ" ; arrivalTime/departureTime : "HH:MM" (optionnels) ; dogsCount : 1/2/3
-// nightlyRate : tarif par nuit choisi (0 à 25€) — si absent/invalide, on retombe sur RATE_NUIT.
-function computeDogPrice(start, end, arrivalTime, departureTime, dogsCount, nightlyRate) {
-  const d1 = parseLocalDate(start);
-  const d2 = parseLocalDate(end);
-  if (!d1 || !d2) return 0;
-  const nights = Math.max(0, Math.round((d2 - d1) / 86400000));
-
-  const parsedRate = parseFloat(nightlyRate);
-  const rate = !isNaN(parsedRate) ? Math.min(25, Math.max(0, parsedRate)) : RATE_NUIT;
-
-  let arriveeTardive = false;
-  if (arrivalTime) {
-    const [ah, am] = arrivalTime.split(":").map(Number);
-    const mins = ah * 60 + (am || 0);
-    arriveeTardive = mins >= (13 * 60 + 30) && mins < (19 * 60);
-  }
-
-  let extraJournee = false, extraDemi = false;
-  if (departureTime) {
-    const dh = Number(departureTime.split(":")[0]);
-    if (dh >= 14) extraJournee = true;
-    else if (dh > 8 && dh <= 13) extraDemi = true;
-  }
-
-  const nb = parseInt(dogsCount) || 1;
-  const discRate = nb >= 3 ? REMISE_3_CHIENS : nb === 2 ? REMISE_2_CHIENS : 0;
-  const disc = (v) => Math.round(v * (1 - discRate));
-
-  let total = 0;
-  if (nights > 0) {
-    const prix1 = arriveeTardive ? TARIF_ARRIVEE_TARDIVE : rate;
-    total += disc(nb * (prix1 + Math.max(0, nights - 1) * rate));
-  }
-  if (extraJournee) total += disc(nb * rate);
-  if (extraDemi) total += disc(nb * TARIF_DEMI_JOURNEE);
-  return total;
-}
-
-// ---------- option balade (supplément) ----------
+// ---------- option balade (supplément qui s'ajoute au séjour, quel que soit le service — sauf toilettage) ----------
 const RATE_BALADE_30MIN = 6;  // balade de 30 min
-const RATE_BALADE_1H = 9;     // balade de 1h
+const RATE_BALADE_45MIN = 9;  // balade de 45 min
 const RATE_BALADE_OFFRE = 6;  // tarif offre dès le seuil ci-dessous
 const SEUIL_OFFRE_BALADE = 5; // à partir de 5 balades ou plus (jour ou semaine), tarif ramené à 6€
 
@@ -357,33 +339,154 @@ const SEUIL_OFFRE_BALADE = 5; // à partir de 5 balades ou plus (jour ou semaine
 function walkUnitPrice(duration, count) {
   const n = parseInt(count) || 0;
   if (n >= SEUIL_OFFRE_BALADE) return RATE_BALADE_OFFRE;
-  return duration === "60" ? RATE_BALADE_1H : RATE_BALADE_30MIN;
+  return duration === "45" ? RATE_BALADE_45MIN : RATE_BALADE_30MIN;
 }
 
 // Calcule le supplément balade total sur toute la durée du séjour.
-// frequency: "day" (balades/jour, multiplié par le nb de jours du séjour) ou "week" (balades/semaine, multiplié par le nb de semaines).
-function computeWalkPrice(start, end, walkEnabled, walkDuration, walkFrequency, walkCount) {
+// frequency: "day" (balades/jour, multiplié par le nb de jours) ou "week" (balades/semaine, multiplié par le nb de semaines).
+// service : la pension se compte en NUITS, les autres services (garderie/demi/promenade/évasion) en JOURS inclusifs (comme l'admin).
+function computeWalkPrice(start, end, walkEnabled, walkDuration, walkFrequency, walkCount, service) {
   if (!walkEnabled) return 0;
   const n = parseInt(walkCount) || 0;
   if (n <= 0) return 0;
   const d1 = parseLocalDate(start);
   const d2 = parseLocalDate(end);
   const nights = d1 && d2 ? Math.max(0, Math.round((d2 - d1) / 86400000)) : 0;
-  const days = Math.max(1, nights);
+  const days = (d1 && d2) ? ((service === "pension") ? Math.max(1, nights) : Math.max(1, nights + 1)) : 1;
   const periods = walkFrequency === "week" ? Math.max(1, Math.ceil(days / 7)) : days;
   return periods * n * walkUnitPrice(walkDuration, n);
 }
 
-// Prix total = pension + supplément balade.
-function computeTotalPrice(start, end, arrivalTime, departureTime, dogsCount, nightlyRate, walkEnabled, walkDuration, walkFrequency, walkCount) {
-  return computeDogPrice(start, end, arrivalTime, departureTime, dogsCount, nightlyRate)
-    + computeWalkPrice(start, end, walkEnabled, walkDuration, walkFrequency, walkCount);
+// ---------- prix total selon le service choisi (reprend la logique complète de l'admin) ----------
+// p: { service, start, end, arrivalTime, departureTime, dogsCount, nightlyRate, evasionDays,
+//      walkEnabled, walkDuration, walkFrequency, walkCount, deplacement, prixManuel }
+function computeServicePrice(p) {
+  const service = p.service || "pension";
+  const d1 = parseLocalDate(p.start);
+  const d2 = parseLocalDate(p.end);
+  const nights = d1 && d2 ? Math.max(0, Math.round((d2 - d1) / 86400000)) : 0;
+  const nb = parseInt(p.dogsCount) || 1;
+
+  const parsedRate = parseFloat(p.nightlyRate);
+  const nightlyRate = !isNaN(parsedRate) ? Math.min(25, Math.max(0, parsedRate)) : RATE_NUIT;
+
+  let arriveeTardive = false;
+  if (p.arrivalTime && d1) {
+    const mins = (() => { const [ah, am] = p.arrivalTime.split(":").map(Number); return ah * 60 + (am || 0); })();
+    arriveeTardive = mins >= (13 * 60 + 30) && mins < (19 * 60);
+  }
+  let extraJournee = false, extraDemi = false;
+  if (p.departureTime && d2) {
+    const dh = Number(p.departureTime.split(":")[0]);
+    if (dh >= 14) extraJournee = true;
+    else if (dh > 8 && dh <= 13) extraDemi = true;
+  }
+
+  // Forfait Évasion combiné : n'a de sens que si le service choisi N'EST PAS déjà "evasion".
+  const evasionDays = service !== "evasion" ? (parseInt(p.evasionDays) || 0) : 0;
+  let total = 0;
+
+  if (service === "toilettage") {
+    // Forfait fixe : ni remise multi-chiens, ni supplément balade, ni combo évasion (comme l'admin).
+    total = RATE_TOILETTAGE;
+  } else {
+    let brut = 0;
+    let nbUnitesPleinTarif = 0; // unités facturées plein tarif, seules substituables par le Forfait Évasion
+
+    if (service === "pension") {
+      if (d1 && d2 && nights > 0) {
+        const prix1 = arriveeTardive ? TARIF_ARRIVEE_TARDIVE : nightlyRate;
+        brut = prix1 + Math.max(0, nights - 1) * nightlyRate;
+        nbUnitesPleinTarif = Math.max(0, nights - (arriveeTardive ? 1 : 0));
+      }
+      if (extraJournee) brut += RATE_GARDERIE;
+      if (extraDemi) brut += TARIF_DEMI_JOURNEE;
+    } else if (service === "garderie") {
+      const jours = (d1 && d2) ? Math.max(1, nights + 1) : 1;
+      brut = RATE_GARDERIE * jours; nbUnitesPleinTarif = jours;
+    } else if (service === "demi") {
+      const jours = (d1 && d2) ? Math.max(1, nights + 1) : 1;
+      brut = TARIF_DEMI_JOURNEE * jours; nbUnitesPleinTarif = jours;
+    } else if (service === "promenade") {
+      const jours = (d1 && d2) ? Math.max(1, nights + 1) : 1;
+      brut = RATE_PROMENADE * jours; nbUnitesPleinTarif = jours;
+    } else if (service === "evasion") {
+      // Vendu seul : le nombre de journées se saisit directement (pas dérivé des dates).
+      const joursE = Math.max(1, parseInt(p.evasionDays) || 1);
+      brut = RATE_EVASION * joursE;
+    }
+
+    // Forfait Évasion combiné à une garde en cours : remplace des unités plein tarif, ne s'ajoute pas.
+    if (evasionDays > 0) {
+      const tarifRemplace = service === "pension" ? nightlyRate
+        : service === "garderie" ? RATE_GARDERIE
+        : service === "demi" ? TARIF_DEMI_JOURNEE
+        : service === "promenade" ? RATE_PROMENADE : 0;
+      const nbRemplacees = Math.min(evasionDays, tarifRemplace > 0 ? nbUnitesPleinTarif : 0);
+      brut = brut - (tarifRemplace * nbRemplacees) + (RATE_EVASION * evasionDays);
+    }
+
+    // Balades en supplément (s'ajoutent, contrairement à l'Évasion qui remplace).
+    brut += computeWalkPrice(p.start, p.end, p.walkEnabled, p.walkDuration, p.walkFrequency, p.walkCount, service);
+
+    let sousTotal = brut * nb;
+    if (nb >= 2) {
+      const rate = nb >= 3 ? REMISE_3_CHIENS : REMISE_2_CHIENS;
+      sousTotal -= Math.round(sousTotal * rate);
+    }
+    total = sousTotal;
+  }
+
+  // Prix personnalisé (optionnel) : remplace entièrement le calcul automatique.
+  const pm = parseFloat(p.prixManuel);
+  if (p.prixManuel !== undefined && String(p.prixManuel).trim() !== "" && !isNaN(pm) && pm >= 0) {
+    total = pm;
+  }
+
+  // Supplément déplacement : toujours ajouté en dernier, même sur un prix personnalisé.
+  const depl = parseFloat(p.deplacement) || 0;
+  if (depl > 0) total += depl;
+
+  return Math.round(total * 100) / 100;
 }
 
 // Reste à payer = prix total - acompte déjà versé (jamais négatif).
 function computeRemaining(totalPrice, depositAmount) {
   const dep = parseFloat(depositAmount) || 0;
   return Math.max(0, Math.round((totalPrice - dep) * 100) / 100);
+}
+
+// ---------- visites à domicile : tarifs par type d'animal (comme l'admin) ----------
+const VISIT_RATES = { chien: 15, chat: 12, furet: 13, poules: 13, lapin: 10, rongeur: 10, oiseau: 10, tortue: 10, poisson: 8 };
+const VISIT_ANIMAL_LABELS = { chien: "🐶 Chien", chat: "🐱 Chat", furet: "🦡 Furet", poules: "🐔 Poules", lapin: "🐰 Lapin", rongeur: "🐹 Rongeur", oiseau: "🦜 Oiseau", tortue: "🐢 Tortue", poisson: "🐠 Poisson" };
+const VISIT_SUPP_1H = 5; // supplément si la visite dure 1h au lieu de 30 min
+
+function computeVisitPrice(animal, duration, count) {
+  const rate = VISIT_RATES[animal] != null ? VISIT_RATES[animal] : VISIT_RATES.chien;
+  const n = Math.max(1, parseInt(count) || 1);
+  const supp = duration === "60" ? VISIT_SUPP_1H : 0;
+  return Math.round((rate + supp) * n * 100) / 100;
+}
+
+// Construit l'objet de paramètres attendu par computeServicePrice à partir du state
+// ("new" pour le formulaire d'ajout, "edit" pour le formulaire de modification).
+function priceParamsFromState(prefix) {
+  return {
+    service: state[prefix + "Service"],
+    start: state[prefix + "Start"],
+    end: state[prefix + "End"],
+    arrivalTime: state[prefix + "ArrivalTime"],
+    departureTime: state[prefix + "DepartureTime"],
+    dogsCount: state[prefix + "DogsCount"],
+    nightlyRate: state[prefix + "DailyRate"],
+    evasionDays: state[prefix + "EvasionDays"],
+    walkEnabled: state[prefix + "WalkEnabled"],
+    walkDuration: state[prefix + "WalkDuration"],
+    walkFrequency: state[prefix + "WalkFrequency"],
+    walkCount: state[prefix + "WalkCount"],
+    deplacement: state[prefix + "Deplacement"],
+    prixManuel: state[prefix + "PrixManuel"],
+  };
 }
 
 const STORAGE_KEY = "ma-journee-data-v1";
@@ -395,9 +498,14 @@ function paymentBadges(d, indent) {
     ? `✓ Acompte${d.depositAmount ? " " + esc(d.depositAmount) + "€" : ""}`
     : "Sans acompte";
   const remaining = d.deposit && !d.paid && typeof d.price === "number" ? computeRemaining(d.price, d.depositAmount) : null;
+  const service = d.service || "pension";
+  // anciennes balades "1h" (60 min, avant l'alignement sur l'admin) : même tarif que 45 min.
+  const walkLabel = d.walkDuration === "30" ? "30min" : "45min";
   return `<div class="${indent ? "payment-row-indent" : "payment-row"}">
+    ${service !== "pension" ? `<span class="service-badge-chip">${SERVICE_LABELS[service] || service}</span>` : ""}
     ${typeof d.price === "number" ? `<span class="price-badge">💶 ${d.price}€</span>` : ""}
-    ${d.walkEnabled ? `<span class="price-badge">🐾 ${d.walkCount || 0}/${d.walkFrequency === "week" ? "sem" : "j"} · ${d.walkDuration === "60" ? "1h" : "30min"}</span>` : ""}
+    ${d.walkEnabled ? `<span class="price-badge">🐾 ${d.walkCount || 0}/${d.walkFrequency === "week" ? "sem" : "j"} · ${walkLabel}</span>` : ""}
+    ${d.deplacement ? `<span class="price-badge">🚗 +${d.deplacement}€</span>` : ""}
     <span class="pay-badge ${d.paid ? "pay-badge-on" : "pay-badge-off"}" style="cursor:default;">${d.paid ? "✓ Payé" : "Non payé"}</span>
     <span class="pay-badge ${d.deposit ? "deposit-badge-on" : "pay-badge-off"}" style="cursor:default;">${depositLabel}</span>
     ${remaining !== null ? `<span class="price-badge remaining-badge">Reste à payer : ${remaining}€</span>` : ""}
@@ -414,6 +522,7 @@ let state = {
   today: todayStr(),
   showAddDog: false,
   newName: "",
+  newService: "pension",
   newStart: todayStr(),
   newEnd: "",
   newPaid: false,
@@ -423,6 +532,9 @@ let state = {
   newDepartureTime: "",
   newDogsCount: "1",
   newDailyRate: String(RATE_NUIT),
+  newEvasionDays: "",
+  newDeplacement: "",
+  newPrixManuel: "",
   newWalkEnabled: false,
   newWalkDuration: "30",
   newWalkFrequency: "day",
@@ -431,8 +543,12 @@ let state = {
   showAddVisit: false,
   visitClient: "",
   visitDate: todayStr(),
+  visitAnimal: "chien",
+  visitDuration: "30",
+  visitCount: "1",
   editDogId: null,
   editName: "",
+  editService: "pension",
   editStart: "",
   editEnd: "",
   editPaid: false,
@@ -442,6 +558,9 @@ let state = {
   editDepartureTime: "",
   editDogsCount: "1",
   editDailyRate: String(RATE_NUIT),
+  editEvasionDays: "",
+  editDeplacement: "",
+  editPrixManuel: "",
   editWalkEnabled: false,
   editWalkDuration: "30",
   editWalkFrequency: "day",
@@ -535,6 +654,7 @@ function rerender(focusId) {
 // ---------- actions (exposed on window for inline handlers) ----------
 function resetAddForm() {
   state.newName = "";
+  state.newService = "pension";
   state.newStart = state.today;
   state.newEnd = "";
   state.newPaid = false;
@@ -544,6 +664,9 @@ function resetAddForm() {
   state.newDepartureTime = "";
   state.newDogsCount = "1";
   state.newDailyRate = state.lastDailyRate != null ? state.lastDailyRate : String(RATE_NUIT);
+  state.newEvasionDays = "";
+  state.newDeplacement = "";
+  state.newPrixManuel = "";
   state.newWalkEnabled = false;
   state.newWalkDuration = "30";
   state.newWalkFrequency = "day";
@@ -577,11 +700,11 @@ window.updateFieldDeferred = function (field, value) {
 function refreshLiveFields(field) {
   if (["newStart", "newEnd", "newArrivalTime", "newDepartureTime"].includes(field)) {
     const el = document.getElementById("newPricePreview");
-    if (el) el.textContent = computeTotalPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount) + "€";
+    if (el) el.textContent = computeServicePrice(priceParamsFromState("new")) + "€";
   }
   if (["editStart", "editEnd", "editArrivalTime", "editDepartureTime"].includes(field)) {
     const el = document.getElementById("editPricePreview");
-    if (el) el.textContent = computeTotalPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount) + "€";
+    if (el) el.textContent = computeServicePrice(priceParamsFromState("edit")) + "€";
   }
   if (field === "otherDeparturesDate") {
     const clearWrap = document.getElementById("otherDeparturesClearWrap");
@@ -622,6 +745,7 @@ window.submitAddDog = function (e) {
   state.dogs.push({
     id: uid(),
     name,
+    service: state.newService,
     start: state.newStart,
     end: state.newEnd,
     checkins: {},
@@ -634,12 +758,15 @@ window.submitAddDog = function (e) {
     departureTime: state.newDepartureTime,
     dogsCount: state.newDogsCount,
     dailyRate: state.newDailyRate,
+    evasionDays: state.newEvasionDays,
+    deplacement: state.newDeplacement,
+    prixManuel: state.newPrixManuel,
     walkEnabled: state.newWalkEnabled,
     walkDuration: state.newWalkDuration,
     walkFrequency: state.newWalkFrequency,
     walkCount: state.newWalkCount,
-    walkPrice: computeWalkPrice(state.newStart, state.newEnd, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount),
-    price: computeTotalPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount),
+    walkPrice: computeWalkPrice(state.newStart, state.newEnd, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount, state.newService),
+    price: computeServicePrice(priceParamsFromState("new")),
   });
   state.lastDailyRate = state.newDailyRate;
   state.showAddDog = false;
@@ -656,6 +783,7 @@ window.openEditDog = function (id) {
   if (!d) return;
   state.editDogId = id;
   state.editName = d.name;
+  state.editService = d.service || "pension";
   state.editStart = d.start;
   state.editEnd = d.end;
   state.editPaid = d.paid;
@@ -665,8 +793,12 @@ window.openEditDog = function (id) {
   state.editDepartureTime = d.departureTime || "";
   state.editDogsCount = d.dogsCount || "1";
   state.editDailyRate = d.dailyRate || String(RATE_NUIT);
+  state.editEvasionDays = d.evasionDays || "";
+  state.editDeplacement = d.deplacement || "";
+  state.editPrixManuel = d.prixManuel || "";
   state.editWalkEnabled = d.walkEnabled || false;
-  state.editWalkDuration = d.walkDuration || "30";
+  // anciennes balades "1h" (60 min) : même tarif que 45 min, on aligne simplement l'étiquette.
+  state.editWalkDuration = d.walkDuration === "60" ? "45" : (d.walkDuration || "30");
   state.editWalkFrequency = d.walkFrequency || "day";
   state.editWalkCount = d.walkCount || "";
   state.editError = "";
@@ -689,6 +821,7 @@ window.submitEditDog = function (e) {
       ? {
           ...d,
           name,
+          service: state.editService,
           start: state.editStart,
           end: state.editEnd,
           arrivalConfirmed: d.start === state.editStart ? d.arrivalConfirmed : false,
@@ -700,12 +833,15 @@ window.submitEditDog = function (e) {
           departureTime: state.editDepartureTime,
           dogsCount: state.editDogsCount,
           dailyRate: state.editDailyRate,
+          evasionDays: state.editEvasionDays,
+          deplacement: state.editDeplacement,
+          prixManuel: state.editPrixManuel,
           walkEnabled: state.editWalkEnabled,
           walkDuration: state.editWalkDuration,
           walkFrequency: state.editWalkFrequency,
           walkCount: state.editWalkCount,
-          walkPrice: computeWalkPrice(state.editStart, state.editEnd, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount),
-          price: computeTotalPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount),
+          walkPrice: computeWalkPrice(state.editStart, state.editEnd, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount, state.editService),
+          price: computeServicePrice(priceParamsFromState("edit")),
         }
       : d
   );
@@ -742,9 +878,20 @@ window.submitAddVisit = function (e) {
   e.preventDefault();
   const client = state.visitClient.trim();
   if (!client) return;
-  state.visits.push({ id: uid(), client, date: state.visitDate });
+  state.visits.push({
+    id: uid(),
+    client,
+    date: state.visitDate,
+    animal: state.visitAnimal,
+    duration: state.visitDuration,
+    count: state.visitCount,
+    price: computeVisitPrice(state.visitAnimal, state.visitDuration, state.visitCount),
+  });
   state.visitClient = "";
   state.visitDate = state.today;
+  state.visitAnimal = "chien";
+  state.visitDuration = "30";
+  state.visitCount = "1";
   state.showAddVisit = false;
   rerender();
 };
@@ -773,7 +920,10 @@ function render() {
   const upcomingArrivals = state.dogs.filter((d) => d.start > today).sort((a, b) => a.start.localeCompare(b.start));
   const checkedInCount = presentDogs.filter((d) => d.checkins && d.checkins[today]).length;
   const visitsToday = state.visits.filter((v) => v.date === today);
-  const totalRevenue = Math.round(state.dogs.reduce((sum, d) => sum + (typeof d.price === "number" ? d.price : 0), 0) * 100) / 100;
+  const totalRevenue = Math.round((
+    state.dogs.reduce((sum, d) => sum + (typeof d.price === "number" ? d.price : 0), 0)
+    + state.visits.reduce((sum, v) => sum + (typeof v.price === "number" ? v.price : 0), 0)
+  ) * 100) / 100;
 
   const futureDepartures = state.dogs.filter((d) => d.end > today).sort((a, b) => a.end.localeCompare(b.end));
   const otherDepartures = state.otherDeparturesDate
@@ -799,6 +949,79 @@ function render() {
     return `<div class="stat-card stat-card--${tone}"><div class="stat-icon-chip stat-icon-chip--${tone}">${icon}</div><div class="stat-value">${esc(value)}</div><div class="stat-label">${esc(label)}</div></div>`;
   }
 
+  // Sélecteur de "Type de prestation" — affiché juste après le nom, avant les dates.
+  function renderServiceSelector(prefix) {
+    const service = state[prefix + "Service"] || "pension";
+    const serviceGrid = `<div class="service-grid">${SERVICE_ORDER.map((sv) =>
+      `<button type="button" class="toggle-form-btn ${service === sv ? "service-badge-on" : ""}" onclick="updateField('${prefix}Service', '${sv}')">${SERVICE_LABELS[sv]}</button>`
+    ).join("")}</div>`;
+    return `<div class="field-block"><span class="section-label">Type de prestation</span>${serviceGrid}</div>`;
+  }
+
+  // Champs qui dépendent du service choisi : tarif nuit (pension), combo/forfait Évasion,
+  // balade en supplément, déplacement et prix personnalisé. Affichés après les dates/nb chiens.
+  function renderServiceFields(prefix) {
+    const service = state[prefix + "Service"] || "pension";
+    const walkEnabled = state[prefix + "WalkEnabled"];
+    const walkDuration = state[prefix + "WalkDuration"];
+    const walkFrequency = state[prefix + "WalkFrequency"];
+    const walkCount = state[prefix + "WalkCount"];
+    const evasionDays = state[prefix + "EvasionDays"];
+    const deplacement = state[prefix + "Deplacement"];
+    const prixManuel = state[prefix + "PrixManuel"];
+    const dailyRate = state[prefix + "DailyRate"];
+
+    const dailyRateField = service !== "pension" ? "" : `
+        <label class="field">💶 Tarif par nuit (€)
+          <input id="${prefix}DailyRate" type="number" min="0" max="25" step="0.5" inputmode="decimal"
+            value="${esc(dailyRate)}" oninput="updateField('${prefix}DailyRate', this.value)" />
+        </label>`;
+
+    const evasionField = service === "toilettage" ? "" : service === "evasion" ? `
+        <label class="field">🏔️ Nombre de journées Évasion
+          <input id="${prefix}EvasionDays" type="number" min="1" step="1" inputmode="numeric"
+            value="${esc(evasionDays)}" oninput="updateField('${prefix}EvasionDays', this.value)" placeholder="ex. 1" />
+        </label>` : `
+        <label class="field">🏔️ Journées Forfait Évasion <span class="field-hint">— remplacent la journée, ne s'ajoutent pas</span>
+          <input id="${prefix}EvasionDays" type="number" min="0" step="1" inputmode="numeric"
+            value="${esc(evasionDays)}" oninput="updateField('${prefix}EvasionDays', this.value)" placeholder="laisser vide si aucune" />
+        </label>`;
+
+    const walkSection = service === "toilettage" ? "" : `
+        <div class="walk-section">
+          <button type="button" class="toggle-form-btn ${walkEnabled ? "walk-badge-on" : ""}" onclick="updateField('${prefix}WalkEnabled', ${!walkEnabled})">🐾 ${walkEnabled ? "Balade ajoutée" : "+ Ajouter une balade"}</button>
+          ${walkEnabled ? `
+          <div class="date-row">
+            <button type="button" class="toggle-form-btn ${walkDuration === "30" ? "walk-badge-on" : ""}" onclick="updateField('${prefix}WalkDuration', '30')">30 min · 6€</button>
+            <button type="button" class="toggle-form-btn ${walkDuration === "45" ? "walk-badge-on" : ""}" onclick="updateField('${prefix}WalkDuration', '45')">45 min · 9€</button>
+          </div>
+          <div class="date-row">
+            <button type="button" class="toggle-form-btn ${walkFrequency === "day" ? "walk-badge-on" : ""}" onclick="updateField('${prefix}WalkFrequency', 'day')">Par jour</button>
+            <button type="button" class="toggle-form-btn ${walkFrequency === "week" ? "walk-badge-on" : ""}" onclick="updateField('${prefix}WalkFrequency', 'week')">Par semaine</button>
+          </div>
+          <label class="field">Nombre de balades souhaité (${walkFrequency === "week" ? "par semaine" : "par jour"})
+            <input id="${prefix}WalkCount" type="number" min="0" step="1" inputmode="numeric"
+              value="${esc(walkCount)}" oninput="updateField('${prefix}WalkCount', this.value)" placeholder="ex. 1" />
+          </label>
+          ${(parseInt(walkCount) || 0) >= SEUIL_OFFRE_BALADE ? `<span class="offer-badge">🎁 Offre appliquée : 6€ / balade</span>` : ""}
+          ` : ""}
+        </div>`;
+
+    const extrasRow = `
+        <div class="date-row">
+          <label class="field">🚗 Déplacement (€)
+            <input id="${prefix}Deplacement" type="number" min="0" step="1" inputmode="decimal"
+              value="${esc(deplacement)}" oninput="updateField('${prefix}Deplacement', this.value)" placeholder="0" />
+          </label>
+          <label class="field">💶 Prix personnalisé (€)
+            <input id="${prefix}PrixManuel" type="number" min="0" step="1" inputmode="decimal"
+              value="${esc(prixManuel)}" oninput="updateField('${prefix}PrixManuel', this.value)" placeholder="auto" />
+          </label>
+        </div>`;
+
+    return dailyRateField + evasionField + walkSection + extrasRow;
+  }
+
 
   const addDogForm = state.showAddDog ? `
     <div class="card card--new">
@@ -810,6 +1033,7 @@ function render() {
         <label class="field">Prénom du chien
           <input id="newName" value="${esc(state.newName)}" oninput="updateField('newName', this.value)" placeholder="ex. Milo" />
         </label>
+        ${renderServiceSelector("new")}
         <div class="date-row">
           <label class="field">Arrivée
             <input id="newStart" type="date" value="${esc(state.newStart)}" onchange="updateFieldDeferred('newStart', this.value)" />
@@ -826,36 +1050,16 @@ function render() {
             <input id="newDepartureTime" type="time" value="${esc(state.newDepartureTime)}" onchange="updateFieldDeferred('newDepartureTime', this.value)" />
           </label>
         </div>
+        ${state.newService !== "toilettage" ? `
         <label class="field">Nombre de chiens (même réservation)
           <select id="newDogsCount" onchange="updateField('newDogsCount', this.value)">
             <option value="1" ${state.newDogsCount === "1" ? "selected" : ""}>1 chien</option>
             <option value="2" ${state.newDogsCount === "2" ? "selected" : ""}>2 chiens (−10%)</option>
             <option value="3" ${state.newDogsCount === "3" ? "selected" : ""}>3 chiens ou + (−15%)</option>
           </select>
-        </label>
-        <label class="field">💶 Tarif par nuit (€)
-          <input id="newDailyRate" type="number" min="0" max="25" step="0.5" inputmode="decimal"
-            value="${esc(state.newDailyRate)}" oninput="updateField('newDailyRate', this.value)" />
-        </label>
-        <div class="walk-section">
-          <button type="button" class="toggle-form-btn ${state.newWalkEnabled ? "walk-badge-on" : ""}" onclick="updateField('newWalkEnabled', ${!state.newWalkEnabled})">🐾 ${state.newWalkEnabled ? "Balade ajoutée" : "+ Ajouter une balade"}</button>
-          ${state.newWalkEnabled ? `
-          <div class="date-row">
-            <button type="button" class="toggle-form-btn ${state.newWalkDuration === "30" ? "walk-badge-on" : ""}" onclick="updateField('newWalkDuration', '30')">30 min · 6€</button>
-            <button type="button" class="toggle-form-btn ${state.newWalkDuration === "60" ? "walk-badge-on" : ""}" onclick="updateField('newWalkDuration', '60')">1h · 9€</button>
-          </div>
-          <div class="date-row">
-            <button type="button" class="toggle-form-btn ${state.newWalkFrequency === "day" ? "walk-badge-on" : ""}" onclick="updateField('newWalkFrequency', 'day')">Par jour</button>
-            <button type="button" class="toggle-form-btn ${state.newWalkFrequency === "week" ? "walk-badge-on" : ""}" onclick="updateField('newWalkFrequency', 'week')">Par semaine</button>
-          </div>
-          <label class="field">Nombre de balades souhaité (${state.newWalkFrequency === "week" ? "par semaine" : "par jour"})
-            <input id="newWalkCount" type="number" min="0" step="1" inputmode="numeric"
-              value="${esc(state.newWalkCount)}" oninput="updateField('newWalkCount', this.value)" placeholder="ex. 1" />
-          </label>
-          ${(parseInt(state.newWalkCount) || 0) >= SEUIL_OFFRE_BALADE ? `<span class="offer-badge">🎁 Offre appliquée : 6€ / balade</span>` : ""}
-          ` : ""}
-        </div>
-        <div class="price-preview">Prix total estimé : <strong id="newPricePreview">${computeTotalPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount)}€</strong></div>
+        </label>` : ""}
+        ${renderServiceFields("new")}
+        <div class="price-preview">Prix total estimé : <strong id="newPricePreview">${computeServicePrice(priceParamsFromState("new"))}€</strong></div>
         <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.newPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('newPaid', ${!state.newPaid})">${state.newPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.newDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('newDeposit', ${!state.newDeposit})">${state.newDeposit ? "✓ Acompte" : "Sans acompte"}</button>
@@ -864,7 +1068,7 @@ function render() {
         <label class="field">Montant de l'acompte (€)
           <input id="newDepositAmount" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(state.newDepositAmount)}" oninput="updateField('newDepositAmount', this.value)" placeholder="ex. 30" />
         </label>
-        <div class="price-preview remaining-badge">Reste à payer : <strong>${computeRemaining(computeTotalPrice(state.newStart, state.newEnd, state.newArrivalTime, state.newDepartureTime, state.newDogsCount, state.newDailyRate, state.newWalkEnabled, state.newWalkDuration, state.newWalkFrequency, state.newWalkCount), state.newDepositAmount)}€</strong></div>` : ""}
+        <div class="price-preview remaining-badge">Reste à payer : <strong>${computeRemaining(computeServicePrice(priceParamsFromState("new")), state.newDepositAmount)}€</strong></div>` : ""}
         ${state.formError ? `<div class="error-text">${esc(state.formError)}</div>` : ""}
         <button type="submit" class="submit-btn">Enregistrer le chien</button>
       </form>
@@ -881,6 +1085,7 @@ function render() {
         <label class="field">Prénom du chien
           <input id="editName" value="${esc(state.editName)}" oninput="updateField('editName', this.value)" placeholder="ex. Milo" />
         </label>
+        ${renderServiceSelector("edit")}
         <div class="date-row">
           <label class="field">Arrivée
             <input id="editStart" type="date" value="${esc(state.editStart)}" onchange="updateFieldDeferred('editStart', this.value)" />
@@ -897,36 +1102,16 @@ function render() {
             <input id="editDepartureTime" type="time" value="${esc(state.editDepartureTime)}" onchange="updateFieldDeferred('editDepartureTime', this.value)" />
           </label>
         </div>
+        ${state.editService !== "toilettage" ? `
         <label class="field">Nombre de chiens (même réservation)
           <select id="editDogsCount" onchange="updateField('editDogsCount', this.value)">
             <option value="1" ${state.editDogsCount === "1" ? "selected" : ""}>1 chien</option>
             <option value="2" ${state.editDogsCount === "2" ? "selected" : ""}>2 chiens (−10%)</option>
             <option value="3" ${state.editDogsCount === "3" ? "selected" : ""}>3 chiens ou + (−15%)</option>
           </select>
-        </label>
-        <label class="field">💶 Tarif par nuit (€)
-          <input id="editDailyRate" type="number" min="0" max="25" step="0.5" inputmode="decimal"
-            value="${esc(state.editDailyRate)}" oninput="updateField('editDailyRate', this.value)" />
-        </label>
-        <div class="walk-section">
-          <button type="button" class="toggle-form-btn ${state.editWalkEnabled ? "walk-badge-on" : ""}" onclick="updateField('editWalkEnabled', ${!state.editWalkEnabled})">🐾 ${state.editWalkEnabled ? "Balade ajoutée" : "+ Ajouter une balade"}</button>
-          ${state.editWalkEnabled ? `
-          <div class="date-row">
-            <button type="button" class="toggle-form-btn ${state.editWalkDuration === "30" ? "walk-badge-on" : ""}" onclick="updateField('editWalkDuration', '30')">30 min · 6€</button>
-            <button type="button" class="toggle-form-btn ${state.editWalkDuration === "60" ? "walk-badge-on" : ""}" onclick="updateField('editWalkDuration', '60')">1h · 9€</button>
-          </div>
-          <div class="date-row">
-            <button type="button" class="toggle-form-btn ${state.editWalkFrequency === "day" ? "walk-badge-on" : ""}" onclick="updateField('editWalkFrequency', 'day')">Par jour</button>
-            <button type="button" class="toggle-form-btn ${state.editWalkFrequency === "week" ? "walk-badge-on" : ""}" onclick="updateField('editWalkFrequency', 'week')">Par semaine</button>
-          </div>
-          <label class="field">Nombre de balades souhaité (${state.editWalkFrequency === "week" ? "par semaine" : "par jour"})
-            <input id="editWalkCount" type="number" min="0" step="1" inputmode="numeric"
-              value="${esc(state.editWalkCount)}" oninput="updateField('editWalkCount', this.value)" placeholder="ex. 1" />
-          </label>
-          ${(parseInt(state.editWalkCount) || 0) >= SEUIL_OFFRE_BALADE ? `<span class="offer-badge">🎁 Offre appliquée : 6€ / balade</span>` : ""}
-          ` : ""}
-        </div>
-        <div class="price-preview">Prix total estimé : <strong id="editPricePreview">${computeTotalPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount)}€</strong></div>
+        </label>` : ""}
+        ${renderServiceFields("edit")}
+        <div class="price-preview">Prix total estimé : <strong id="editPricePreview">${computeServicePrice(priceParamsFromState("edit"))}€</strong></div>
         <div class="date-row">
           <button type="button" class="toggle-form-btn ${state.editPaid ? "pay-badge-on" : "pay-badge-off"}" onclick="updateField('editPaid', ${!state.editPaid})">${state.editPaid ? "✓ Payé" : "Non payé"}</button>
           <button type="button" class="toggle-form-btn ${state.editDeposit ? "deposit-badge-on" : "pay-badge-off"}" onclick="updateField('editDeposit', ${!state.editDeposit})">${state.editDeposit ? "✓ Acompte" : "Sans acompte"}</button>
@@ -935,7 +1120,7 @@ function render() {
         <label class="field">Montant de l'acompte (€)
           <input id="editDepositAmount" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(state.editDepositAmount)}" oninput="updateField('editDepositAmount', this.value)" placeholder="ex. 30" />
         </label>
-        <div class="price-preview remaining-badge">Reste à payer : <strong>${computeRemaining(computeTotalPrice(state.editStart, state.editEnd, state.editArrivalTime, state.editDepartureTime, state.editDogsCount, state.editDailyRate, state.editWalkEnabled, state.editWalkDuration, state.editWalkFrequency, state.editWalkCount), state.editDepositAmount)}€</strong></div>` : ""}
+        <div class="price-preview remaining-badge">Reste à payer : <strong>${computeRemaining(computeServicePrice(priceParamsFromState("edit")), state.editDepositAmount)}€</strong></div>` : ""}
         ${state.editError ? `<div class="error-text">${esc(state.editError)}</div>` : ""}
         <button type="submit" class="submit-btn">Enregistrer les modifications</button>
       </form>
@@ -1023,16 +1208,46 @@ function render() {
     ? `<p class="empty-text">Aucune visite prévue.</p>`
     : `<ul class="list">${state.visits.slice().sort((a, b) => a.date.localeCompare(b.date)).map((v) => `
         <li class="row-item">
-          <span class="dog-name">${esc(v.client)}</span>
-          <span class="dog-dates">${shortFR(v.date)}</span>
-          <button class="trash-btn" onclick="removeVisit('${v.id}')">${ICONS.trash(15)}</button>
+          <div class="row-top">
+            <span class="dog-name">${esc(v.client)}</span>
+            <span class="dog-dates">${shortFR(v.date)}</span>
+            <button class="trash-btn" onclick="removeVisit('${v.id}')">${ICONS.trash(15)}</button>
+          </div>
+          <div class="payment-row">
+            <span class="service-badge-chip">${VISIT_ANIMAL_LABELS[v.animal] || VISIT_ANIMAL_LABELS.chien}</span>
+            ${typeof v.price === "number" ? `<span class="price-badge">💶 ${v.price}€</span>` : ""}
+            ${v.duration === "60" ? `<span class="price-badge">⏱️ 1h</span>` : ""}
+            ${v.count && parseInt(v.count) > 1 ? `<span class="price-badge">×${esc(v.count)}</span>` : ""}
+          </div>
         </li>`).join("")}</ul>`;
 
   const visitForm = state.showAddVisit
-    ? `<form class="inline-form" onsubmit="submitAddVisit(event)">
-        <input id="visitClient" style="flex:1" placeholder="Client / adresse..." value="${esc(state.visitClient)}" oninput="updateField('visitClient', this.value)" />
-        <input id="visitDate" type="date" value="${esc(state.visitDate)}" onchange="updateFieldDeferred('visitDate', this.value)" />
-        <button type="submit" class="add-btn">Ajouter</button>
+    ? `<form class="form-grid" onsubmit="submitAddVisit(event)" style="margin-top:12px;">
+        <div class="date-row">
+          <label class="field">Client / adresse
+            <input id="visitClient" value="${esc(state.visitClient)}" oninput="updateField('visitClient', this.value)" placeholder="ex. Sophie" />
+          </label>
+          <label class="field">Date
+            <input id="visitDate" type="date" value="${esc(state.visitDate)}" onchange="updateFieldDeferred('visitDate', this.value)" />
+          </label>
+        </div>
+        <label class="field">Animal
+          <select id="visitAnimal" onchange="updateField('visitAnimal', this.value)">
+            ${Object.keys(VISIT_ANIMAL_LABELS).map((a) => `<option value="${a}" ${state.visitAnimal === a ? "selected" : ""}>${VISIT_ANIMAL_LABELS[a]} — ${VISIT_RATES[a]}€</option>`).join("")}
+          </select>
+        </label>
+        <div class="date-row">
+          <button type="button" class="toggle-form-btn ${state.visitDuration === "30" ? "animal-badge-on" : ""}" onclick="updateField('visitDuration', '30')">30 min</button>
+          <button type="button" class="toggle-form-btn ${state.visitDuration === "60" ? "animal-badge-on" : ""}" onclick="updateField('visitDuration', '60')">1h (+${VISIT_SUPP_1H}€)</button>
+        </div>
+        <label class="field">Nombre d'animaux
+          <input id="visitCount" type="number" min="1" step="1" inputmode="numeric" value="${esc(state.visitCount)}" oninput="updateField('visitCount', this.value)" />
+        </label>
+        <div class="price-preview">Prix estimé : <strong id="visitPricePreview">${computeVisitPrice(state.visitAnimal, state.visitDuration, state.visitCount)}€</strong></div>
+        <div class="date-row">
+          <button type="submit" class="add-btn" style="flex:1;">Ajouter</button>
+          <button type="button" class="toggle-form-btn" style="flex:0 0 auto;padding:0 16px;" onclick="updateField('showAddVisit', false)">Annuler</button>
+        </div>
       </form>`
     : `<button class="add-link" onclick="openAddVisit()">${ICONS.plus(14)}Ajouter une visite</button>`;
 
@@ -1042,7 +1257,7 @@ function render() {
         <div class="header-left">
           <span class="brand-mark">${ICONS.paw(20, "#fff")}</span>
           <div class="brand-text">
-            <span class="eyebrow">Pension canine</span>
+            <span class="eyebrow">Pension & prestations</span>
             <h1 class="title">Ma journée</h1>
           </div>
         </div>
