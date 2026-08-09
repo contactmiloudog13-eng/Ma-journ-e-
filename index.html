@@ -202,12 +202,12 @@ h1.title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 26px; co
 .pay-badge-off { background: var(--coral-soft-bg); color: var(--coral-soft-text); border-color: var(--coral-soft-line); }
 .pay-badge-on { background: var(--lime-soft-bg); color: var(--lime-soft-text); border-color: var(--lime-soft-line); box-shadow: 0 2px 6px rgba(92,138,34,0.25); }
 .deposit-badge-on { background: var(--grape-soft-bg); color: var(--grape-soft-text); border-color: #DCD4F5; }
-.walk-badge-on { background: var(--turquoise-soft-bg); color: var(--turquoise-deep); border-color: #BFE9E2; box-shadow: 0 2px 6px rgba(21,122,112,0.22); }
+.walk-badge-on { background: linear-gradient(135deg, var(--turquoise-deep), var(--turquoise)); color: #fff; border-color: var(--turquoise-deep); box-shadow: 0 3px 10px rgba(21,122,112,0.4), inset 0 1px 0 rgba(255,255,255,0.3); font-weight: 800; }
 .walk-section { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed var(--turquoise); border-radius: 12px; background: rgba(220,245,241,0.25); }
 .service-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.service-badge-on { background: var(--mango-soft-bg); color: var(--mango-deep); border-color: var(--mango-soft-line); box-shadow: 0 2px 6px rgba(224,107,30,0.22); }
+.service-badge-on { background: linear-gradient(135deg, var(--mango-deep), var(--mango)); color: #fff; border-color: var(--mango-deep); box-shadow: 0 3px 10px rgba(224,107,30,0.4), inset 0 1px 0 rgba(255,255,255,0.3); font-weight: 800; }
 .animal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.animal-badge-on { background: var(--grape-soft-bg); color: var(--grape-soft-text); border-color: #DCD4F5; }
+.animal-badge-on { background: linear-gradient(135deg, var(--grape), var(--grape-soft-text)); color: #fff; border-color: var(--grape-soft-text); box-shadow: 0 3px 10px rgba(92,63,194,0.4), inset 0 1px 0 rgba(255,255,255,0.3); font-weight: 800; }
 .section-label { display: block; font-size: 12.5px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
 .field-hint { font-weight: 400; color: var(--muted); font-size: 11.5px; }
 .field-block { display: flex; flex-direction: column; margin-bottom: 2px; }
@@ -307,7 +307,8 @@ const RATE_NUIT = 25;          // pension : prix d'une nuit (personnalisable par
 const RATE_GARDERIE = 20;      // garderie journée
 const TARIF_DEMI_JOURNEE = 10; // demi-journée (et "jour de départ" réduit en pension)
 const RATE_PROMENADE = 15;     // promenade en service seul (sortie ponctuelle, ≠ supplément balade)
-const RATE_EVASION = 35;       // forfait Évasion / journée
+const RATE_EVASION = 35;       // forfait Évasion vendu seul / journée (= 20 garderie + 15 supplément)
+const EVASION_SUPPLEMENT = 15; // Évasion combinée à une garde : s'AJOUTE au tarif normal du jour
 const RATE_TOILETTAGE = 30;    // toilettage (forfait fixe : pas de remise multi-chiens, pas de supplément)
 const REMISE_2_CHIENS = 0.10;  // -10% à partir de 2 chiens (même réservation)
 const REMISE_3_CHIENS = 0.15;  // -15% à partir de 3 chiens (même réservation)
@@ -416,14 +417,17 @@ function computeServicePrice(p) {
       brut = RATE_EVASION * joursE;
     }
 
-    // Forfait Évasion combiné à une garde en cours : remplace des unités plein tarif, ne s'ajoute pas.
+    // Forfait Évasion combiné à une garde en cours : le tarif du jour reste inchangé,
+    // le supplément Évasion (+15€) s'AJOUTE simplement dessus, journée par journée concernée.
+    // Ex : nuit de pension à 25€ + Évasion ce jour-là = 25 + 15 = 40€ (pas 35€ flat).
     if (evasionDays > 0) {
-      const tarifRemplace = service === "pension" ? nightlyRate
+      const tarifJour = service === "pension" ? nightlyRate
         : service === "garderie" ? RATE_GARDERIE
         : service === "demi" ? TARIF_DEMI_JOURNEE
         : service === "promenade" ? RATE_PROMENADE : 0;
-      const nbRemplacees = Math.min(evasionDays, tarifRemplace > 0 ? nbUnitesPleinTarif : 0);
-      brut = brut - (tarifRemplace * nbRemplacees) + (RATE_EVASION * evasionDays);
+      const nbConcernees = Math.min(evasionDays, tarifJour > 0 ? nbUnitesPleinTarif : 0);
+      const enSus = evasionDays - nbConcernees; // journées Évasion au-delà du séjour (rando isolée) : tarif plein
+      brut += EVASION_SUPPLEMENT * nbConcernees + RATE_EVASION * enSus;
     }
 
     // Balades en supplément (s'ajoutent, contrairement à l'Évasion qui remplace).
@@ -982,7 +986,7 @@ function render() {
           <input id="${prefix}EvasionDays" type="number" min="1" step="1" inputmode="numeric"
             value="${esc(evasionDays)}" oninput="updateField('${prefix}EvasionDays', this.value)" placeholder="ex. 1" />
         </label>` : `
-        <label class="field">🏔️ Journées Forfait Évasion <span class="field-hint">— remplacent la journée, ne s'ajoutent pas</span>
+        <label class="field">🏔️ Journées Forfait Évasion <span class="field-hint">— +15€ ce jour-là, s'ajoute au tarif normal</span>
           <input id="${prefix}EvasionDays" type="number" min="0" step="1" inputmode="numeric"
             value="${esc(evasionDays)}" oninput="updateField('${prefix}EvasionDays', this.value)" placeholder="laisser vide si aucune" />
         </label>`;
@@ -1044,10 +1048,10 @@ function render() {
         </div>
         <div class="date-row">
           <label class="field">Heure d'arrivée
-            <input id="newArrivalTime" type="time" value="${esc(state.newArrivalTime)}" onchange="updateFieldDeferred('newArrivalTime', this.value)" />
+            <input id="newArrivalTime" type="time" min="08:00" max="19:00" value="${esc(state.newArrivalTime)}" onchange="updateFieldDeferred('newArrivalTime', this.value)" />
           </label>
           <label class="field">Heure de départ
-            <input id="newDepartureTime" type="time" value="${esc(state.newDepartureTime)}" onchange="updateFieldDeferred('newDepartureTime', this.value)" />
+            <input id="newDepartureTime" type="time" min="08:00" max="19:00" value="${esc(state.newDepartureTime)}" onchange="updateFieldDeferred('newDepartureTime', this.value)" />
           </label>
         </div>
         ${state.newService !== "toilettage" ? `
@@ -1096,10 +1100,10 @@ function render() {
         </div>
         <div class="date-row">
           <label class="field">Heure d'arrivée
-            <input id="editArrivalTime" type="time" value="${esc(state.editArrivalTime)}" onchange="updateFieldDeferred('editArrivalTime', this.value)" />
+            <input id="editArrivalTime" type="time" min="08:00" max="19:00" value="${esc(state.editArrivalTime)}" onchange="updateFieldDeferred('editArrivalTime', this.value)" />
           </label>
           <label class="field">Heure de départ
-            <input id="editDepartureTime" type="time" value="${esc(state.editDepartureTime)}" onchange="updateFieldDeferred('editDepartureTime', this.value)" />
+            <input id="editDepartureTime" type="time" min="08:00" max="19:00" value="${esc(state.editDepartureTime)}" onchange="updateFieldDeferred('editDepartureTime', this.value)" />
           </label>
         </div>
         ${state.editService !== "toilettage" ? `
